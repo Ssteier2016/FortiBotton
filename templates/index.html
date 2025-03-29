@@ -1,0 +1,1019 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Forti Quest</title>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <script src="https://sdk.mercadopago.com/js/v2"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+        body {
+            font-family: 'Press Start 2P', cursive;
+            background-color: #000;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            overflow: hidden;
+            position: relative;
+            color: white;
+        }
+        body::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><circle cx="2" cy="2" r="1" fill="white" opacity="0.5"/><circle cx="50" cy="50" r="1" fill="white" opacity="0.3"/><circle cx="90" cy="10" r="1" fill="white" opacity="0.4"/><circle cx="30" cy="70" r="1" fill="white" opacity="0.6"/><circle cx="80" cy="80" r="1" fill="white" opacity="0.2"/></svg>') repeat;
+            z-index: 1;
+        }
+        .moon {
+            position: absolute;
+            width: 100px;
+            height: 100px;
+            background: radial-gradient(circle at 30% 30%, #d3d3d3 0%, #a9a9a9 50%, #808080 100%);
+            border-radius: 50%;
+            box-shadow: 0 0 20px rgba(255, 255, 255, 0.3);
+            z-index: 2;
+        }
+        .shooting-star {
+            position: absolute;
+            width: 2px;
+            height: 2px;
+            background: linear-gradient(to right, transparent, #fff, transparent);
+            animation: shoot 2s infinite;
+            z-index: 3;
+        }
+        @keyframes shoot {
+            0% { transform: translate(0, 0) scale(1); opacity: 0; }
+            20% { opacity: 1; }
+            100% { transform: translate(100vw, 100vh) scale(0); opacity: 0; }
+        }
+        .spacex-rocket {
+            position: absolute;
+            width: 40px;
+            height: 80px;
+            background: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 200"><path d="M50 0 L70 20 L60 50 L50 200 L40 50 L30 20 Z" fill="#d4af37"/><path d="M50 50 L60 70 L40 70 Z" fill="#8b4513"/></svg>') no-repeat;
+            background-size: contain;
+            animation: float 5s infinite ease-in-out;
+            z-index: 3;
+        }
+        .satellite {
+            position: absolute;
+            width: 300px;
+            height: 300px;
+            background: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect x="40" y="40" width="20" height="20" fill="#c0c0c0"/><path d="M40 40 L20 20 M60 40 L80 20 M40 60 L20 80 M60 60 L80 80" stroke="#808080" stroke-width="5"/></svg>') no-repeat;
+            background-size: contain;
+            animation: float 5s infinite ease-in-out;
+            z-index: 3;
+        }
+        @keyframes float {
+            0%, 100% { transform: translate(0, 0); }
+            50% { transform: translate(10px, 10px); }
+        }
+        .screen {
+            display: none;
+            text-align: center;
+            width: 90%;
+            max-width: 400px;
+            position: relative;
+            z-index: 4;
+        }
+        .pixel-border {
+            border: 4px solid #FFD700;
+            border-radius: 8px;
+            padding: 20px;
+            background-color: rgba(34, 34, 34, 0.8);
+            color: #FFD700;
+        }
+        #loading-screen .progress-bar {
+            width: 0;
+            height: 20px;
+            background-color: #FFD700;
+            border: 2px solid #000;
+            animation: load 2s linear forwards;
+            margin-top: 10px;
+        }
+        @keyframes load {
+            from { width: 0; }
+            to { width: 100%; }
+        }
+        .forti-logo {
+            font-size: 3em;
+            color: #FFD700;
+            text-shadow: 0 0 10px #FF4500, 0 0 20px #FFD700;
+            animation: logoGlow 2s infinite alternate, logoFadeIn 2s ease-in-out forwards;
+            position: relative;
+            z-index: 5;
+        }
+        @keyframes logoGlow {
+            from { text-shadow: 0 0 10px #FF4500, 0 0 20px #FFD700; }
+            to { text-shadow: 0 0 20px #FF4500, 0 0 30px #FFD700; }
+        }
+        @keyframes logoFadeIn {
+            from { opacity: 0; transform: scale(0.5); }
+            to { opacity: 1; transform: scale(1); }
+        }
+        .logo-icon {
+            position: absolute;
+            width: 40px;
+            height: 40px;
+            background: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><path d="M50 0 L70 20 L60 50 L50 100 L40 50 L30 20 Z" fill="#d4af37"/><path d="M50 50 L60 70 L40 70 Z" fill="#8b4513"/></svg>') no-repeat;
+            background-size: contain;
+            top: -10px;
+            left: 50%;
+            transform: translateX(-50%);
+            animation: rocketFloat 2s infinite ease-in-out;
+        }
+        @keyframes rocketFloat {
+            0%, 100% { transform: translate(-50%, 0); }
+            50% { transform: translate(-50%, -5px); }
+        }
+        .logo-button {
+            display: inline-block;
+            font-size: 2em;
+            padding: 10px 20px;
+            background-color: #FF4500;
+            color: #FFD700;
+            border: 4px solid #000;
+            border-radius: 8px;
+            text-align: center;
+            margin-bottom: 10px;
+            box-shadow: 0 0 10px #FFD700, 0 0 20px #FF4500;
+            animation: glow 2s infinite alternate;
+        }
+        @keyframes glow {
+            from { box-shadow: 0 0 10px #FFD700, 0 0 20px #FF4500; }
+            to { box-shadow: 0 0 20px #FFD700, 0 0 30px #FF4500; }
+        }
+        .game-info {
+            background-color: rgba(20, 20, 20, 0.9);
+            border: 2px dashed #FFD700;
+            padding: 8px;
+            margin: 5px 0;
+            border-radius: 4px;
+            box-shadow: 0 0 5px rgba(255, 215, 0, 0.5);
+        }
+.auth-form p {
+    margin: 5px 0;
+    font-size: 0.9em;
+    color: #666;
+}
+
+.auth-form a {
+    color: #007bff;
+    text-decoration: underline;
+}
+
+.auth-form a:hover {
+    color: #0056b3;
+}
+        #player-name.game-info { border-color: #228B22; }
+        #forti.game-info { border-color: #FF4500; }
+        #pool.game-info { border-color: #FFD700; }
+        #timer.game-info { border-color: #00CED1; }
+        #last-player.game-info { border-color: #FF69B4; }
+        .highlight {
+            animation: highlight 0.5s ease-in-out;
+        }
+        @keyframes highlight {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); background-color: rgba(255, 215, 0, 0.3); }
+            100% { transform: scale(1); background-color: rgba(20, 20, 20, 0.9); }
+        }
+        .blink {
+            animation: blink 1s infinite;
+        }
+        @keyframes blink {
+            50% { opacity: 0.5; }
+        }
+        #button, #withdraw-button, #login-button, #register-button, #logout-button, #record-voice, #shop-button, #generate-payment-link, #back-button, .buy-power-button {
+            font-size: 1.5em;
+            padding: 15px 30px;
+            background-color: #FF4500;
+            color: #FFD700;
+            border: 4px solid #000;
+            cursor: pointer;
+            margin: 10px 0;
+            transition: transform 0.1s ease-in-out;
+        }
+        #button:disabled {
+            background-color: #555;
+            cursor: not-allowed;
+        }
+        #button:active, #withdraw-button:active, #login-button:active, #register-button:active, #logout-button:active, #record-voice:active, #shop-button:active, #back-button:active, .buy-power-button:active {
+            animation: bounce 0.3s;
+        }
+        @keyframes bounce {
+            0% { transform: scale(1); }
+            50% { transform: scale(0.9); }
+            100% { transform: scale(1); }
+        }
+        #record-voice.recording {
+            background-color: #FF0000;
+        }
+        #winners, #online-players {
+            font-size: 1em;
+            color: #FFD700;
+        }
+        .winner-item, .online-player-item {
+            margin: 5px 0;
+        }
+        #cvu-input, #payment-amount {
+            font-family: 'Press Start 2P', cursive;
+            font-size: 1.5em;
+            padding: 15px 30px;
+            background-color: #333;
+            color: #FFD700;
+            border: 4px solid #000;
+            margin: 10px 0;
+            width: calc(100% - 68px);
+        }
+        #transactions-list, #winners-list {
+            max-height: 200px;
+            overflow-y: auto;
+            background-color: #222;
+            padding: 10px;
+            border: 4px solid #000;
+            color: #FFD700;
+            margin-bottom: 20px;
+        }
+        #login-form input, #register-form input, #verify-form input {
+            font-family: 'Press Start 2P', cursive;
+            padding: 5px;
+            border: 4px solid #000;
+            background-color: #333;
+            color: #FFD700;
+            width: 70%;
+            margin: 5px 0;
+        }
+        #chat-messages {
+            background-color: rgba(20, 20, 20, 0.9);
+            border: 2px dashed #FFD700;
+            padding: 5px;
+            margin-bottom: 10px;
+            color: #FFD700;
+        }
+        #chat-input {
+            font-family: 'Press Start 2P', cursive;
+            padding: 5px;
+            border: 4px solid #000;
+            background-color: #333;
+            color: #FFD700;
+        }
+        #chat-send {
+            font-family: 'Press Start 2P', cursive;
+            padding: 5px 10px;
+            background-color: #FF4500;
+            color: #FFD700;
+            border: 4px solid #000;
+            cursor: pointer;
+        }
+        #chat-send:active {
+            animation: bounce 0.3s;
+        }
+        #login-form button, #register-form button, #verify-form button {
+            font-family: 'Press Start 2P', cursive;
+            padding: 5px 10px;
+            border: 4px solid #000;
+            background-color: #FFD700;
+            color: #000;
+        }
+        .barra-container {
+            width: 100%;
+            height: 30px;
+            background-color: #444;
+            margin: 20px auto;
+            border-radius: 15px;
+            overflow: hidden;
+        }
+        .barra {
+            height: 100%;
+            width: 100%;
+            transition: width 1s linear, background-color 1s linear;
+        }
+        .notification {
+            position: fixed;
+            top: 20px;
+            right: -300px;
+            background-color: #FFD700;
+            color: #000;
+            padding: 10px 20px;
+            border-radius: 5px;
+            z-index: 1000;
+            animation: slideIn 0.5s forwards, slideOut 0.5s 3s forwards;
+        }
+        @keyframes slideIn {
+            from { right: -300px; }
+            to { right: 20px; }
+        }
+        @keyframes slideOut {
+            from { right: 20px; }
+            to { right: -300px; }
+        }
+        .shop-card {
+            background-color: rgba(20, 20, 20, 0.9);
+            border: 2px dashed #FFD700;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            color: #FFD700;
+        }
+        @media (max-width: 600px) {
+            body { font-size: 12px; }
+            #button, #withdraw-button, #login-button, #register-button, #logout-button, #record-voice, #shop-button, #back-button, .buy-power-button { padding: 10px 20px; }
+            .screen { width: 95%; }
+            .logo-button { font-size: 1.5em; padding: 8px 16px; }
+            .game-info { font-size: 1em; padding: 6px; }
+            .moon { width: 60px; height: 60px; }
+            .spacex-rocket { width: 30px; height: 60px; }
+            .satellite { width: 20px; height: 20px; }
+            .forti-logo { font-size: 2em; }
+            .logo-icon { width: 30px; height: 30px; }
+        }
+    </style>
+</head>
+<body>
+    <!-- Pantalla 1: Carga con logo -->
+    <div id="loading-screen" class="screen" style="display: block;">
+        <div class="pixel-border">
+            <div class="forti-logo">
+                FORTI
+                <div class="logo-icon"></div>
+            </div>
+            <div class="progress-bar"></div>
+        </div>
+    </div>
+
+    <!-- Pantalla 2: Autenticación (Login/Registro) -->
+    <div id="auth-screen" class="screen" style="display: none;">
+        <div class="pixel-border">
+            <h2>Autenticación</h2>
+            <button id="login-button">Iniciar Sesión</button>
+            <button id="register-button">Registrarse</button>
+
+            <!-- Formulario de Inicio de Sesión -->
+            <form id="login-form" style="display: none;">
+                <input type="text" id="login-username" placeholder="Usuario">
+                <input type="password" id="login-password" placeholder="Contraseña">
+                <button type="submit">Confirmar</button>
+            </form>
+
+            <!-- Formulario de Registro -->
+           <form id="register-form" style="display: none;">
+    <input type="text" id="register-username" name="username" placeholder="Crear Usuario" required>
+    <input type="text" id="register-name" name="name" placeholder="Nombre" required>
+    <input type="password" id="register-password" name="password" placeholder="Crear Contraseña" required>
+    <input type="password" id="register-confirm-password" name="confirm-password" placeholder="Confirmar Contraseña" required>
+    <input type="text" id="reg-telegram" name="telegram_id" placeholder="ID de Telegram (ej: 123456789)" required>
+    <p style="font-size: 0.9em; color: #666;">
+        ¿No sabes tu ID de Telegram? 
+        <a href="https://t.me/getmyid_bot" target="_blank" style="color: #007bff; text-decoration: underline;">
+            Obtén tu ID aquí
+        </a> 
+        enviando /start al bot.
+    </p>
+    <button type="submit">Confirmar</button>
+</form>
+<form id="verify-form" class="auth-form" style="display: none;">
+    <h2>Verificar Cuenta</h2>
+    <input type="text" id="verify-code" placeholder="Código de Telegram" required>
+    <button id="verify-button">Verificar</button>
+</form>
+    </div>
+</div>
+
+    <!-- Pantalla 3: Juego -->
+    <div id="game-screen" class="screen" style="display: none;">
+        <div class="pixel-border">
+            <div class="logo-button">Forti</div>
+            <div id="player-name" class="game-info">Nombre: No registrado</div>
+            <div id="forti" class="game-info">Forti: 0</div>
+            <div id="pool" class="game-info">Pozo: $1000</div>
+            <div id="timer" class="game-info">Tiempo: 240s</div>
+            <div id="last-player" class="game-info">¡El último en presionar el botón gana! Último: Nadie</div>
+            <div class="barra-container">
+                <div id="barra" class="barra"></div>
+            </div>
+            <button id="button">Jugar x 100 Forti</button>
+            <input type="number" id="payment-amount" placeholder="Monto a recargar (ARS)" min="1">
+            <button id="generate-payment-link">Recargar</button>
+            <button id="withdraw-button">Retirar</button>
+            <button id="shop-button">Tienda y Retiros</button>
+            <button id="logout-button">Cerrar Sesión</button>
+            <div id="winners">
+                <h3>Últimos ganadores:</h3>
+                <div id="winners-list"></div>
+            </div>
+            <div id="online-players">
+                <h3>Jugadores en línea:</h3>
+                <div id="online-players-list"></div>
+            </div>
+            <!-- Contenedor para el chat -->
+            <div id="chat" class="game-info">
+                <h3>Chat Global</h3>
+                <div id="chat-messages" style="height: 150px; overflow-y: auto; font-size: 0.9em;"></div>
+                <input type="text" id="chat-input" placeholder="Escribe o graba un mensaje..." style="width: 50%; margin-top: 10px;">
+                <button id="chat-send">Enviar</button>
+                <button id="record-voice">Grabar Voz</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Pantalla 4: Tienda y Pagos -->
+    <div id="shop-payments-screen" class="screen" style="display: none;">
+        <div class="pixel-border">
+            <h2>Tienda y Pagos</h2>
+            <!-- Sección de Tienda -->
+            <div class="shop-card">
+                <h3>Carta: Bloquear Temporizador</h3>
+                <p>Descripción: Bloquea el botón por 30 segundos</p>
+                <p>Precio: 5000 Forti</p>
+                <button class="buy-power-button" data-power="timer_block">Comprar</button>
+            </div>
+            <!-- Sección de Pagos -->
+            <h3>Pagos y Retiros</h3>
+            <input type="text" id="cvu-input" placeholder="Ingresa tu CVU/CBU/Alias">
+            <button id="save-cvu">Guardar CVU/CBU/Alias</button>
+            <h4>Historial de Transacciones</h4>
+            <div id="transactions-list"></div>
+            <!-- Últimos Ganadores -->
+            <h4>Últimos Ganadores</h4>
+            <div id="winners-list"></div>
+            <button id="back-button">Volver al Juego</button>
+        </div>
+    </div>
+
+    <script>
+        // Elementos dinámicos del fondo
+        let moon = document.createElement('div');
+        moon.className = 'moon';
+        moon.style.left = '20%';
+        moon.style.top = '20%';
+        document.body.appendChild(moon);
+
+        for (let i = 0; i < 10; i++) {
+            let star = document.createElement('div');
+            star.className = 'shooting-star';
+            star.style.left = Math.random() * 100 + 'vw';
+            star.style.top = Math.random() * 100 + 'vh';
+            star.style.animationDelay = Math.random() * 5 + 's';
+            document.body.appendChild(star);
+        }
+
+        let rocket = document.createElement('div');
+        rocket.className = 'spacex-rocket';
+        rocket.style.left = '70%';
+        rocket.style.top = '10%';
+        document.body.appendChild(rocket);
+
+        for (let i = 0; i < 3; i++) {
+            let satellite = document.createElement('div');
+            satellite.className = 'satellite';
+            satellite.style.left = Math.random() * 80 + 10 + '%';
+            satellite.style.top = Math.random() * 80 + 10 + '%';
+            satellite.style.animationDelay = Math.random() * 3 + 's';
+            document.body.appendChild(satellite);
+        }
+
+        // Configuración inicial
+        var socket = io('http://192.168.0.6:5000');
+        var mySid = null;
+        var remainingTime = 240;
+        var timerInterval;
+        var verificationCode = null;
+        var mediaRecorder = null;
+        var audioChunks = [];
+        var isRecording = false;
+
+        // Inicializar Mercado Pago
+        const mp = new MercadoPago("APP_USR-44493711284061-030923-7fd16a9d7e9c28d5cfec9eaa4be42df8-320701222", { locale: "es-AR" });
+
+        window.onload = function() {
+            const savedUsername = localStorage.getItem('username');
+            if (savedUsername) {
+                document.getElementById('loading-screen').style.display = 'none';
+                document.getElementById('game-screen').style.display = 'block';
+                document.getElementById('player-name').innerText = 'Nombre: ' + savedUsername;
+            } else {
+                setTimeout(() => {
+                    document.getElementById('loading-screen').style.display = 'none';
+                    document.getElementById('auth-screen').style.display = 'block';
+                }, 2000);
+            }
+        };
+
+        // Conexión Socket.IO
+        socket.on('connect', () => {
+            mySid = socket.id;
+            console.log('Conectado con SID:', mySid);
+            const savedUsername = localStorage.getItem('username');
+            if (savedUsername) {
+                socket.emit('login', { username: savedUsername, password: localStorage.getItem('password') });
+            }
+        });
+
+        socket.on('connect_error', (error) => {
+            console.error('Error de conexión Socket.IO:', error);
+            showNotification('Error de conexión con el servidor. Intenta de nuevo.');
+        });
+
+        // Chat
+        socket.on('chat_history', function(data) {
+            var chatMessages = document.getElementById('chat-messages');
+            chatMessages.innerHTML = '';
+            data.messages.forEach(addChatMessage);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        });
+
+        socket.on('new_message', function(data) {
+            addChatMessage(data);
+            var chatMessages = document.getElementById('chat-messages');
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        });
+
+        socket.on('chat_error', function(data) {
+            showNotification(data.message);
+        });
+
+        // Autenticación
+        document.getElementById('login-button').addEventListener('click', function() {
+            document.getElementById('login-form').style.display = 'block';
+            document.getElementById('register-form').style.display = 'none';
+            document.getElementById('verify-form').style.display = 'none';
+        });
+
+        document.getElementById('login-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const username = document.getElementById('login-username').value;
+            const password = document.getElementById('login-password').value;
+            socket.emit('login', { username: username, password: password });
+        });
+
+        document.getElementById('register-button').addEventListener('click', function() {
+            document.getElementById('login-form').style.display = 'none';
+            document.getElementById('register-form').style.display = 'block';
+            document.getElementById('verify-form').style.display = 'none';
+        });
+
+        document.getElementById('register-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const username = document.getElementById('register-username').value;
+            const name = document.getElementById('register-name').value;
+            const password = document.getElementById('register-password').value;
+            const confirmPassword = document.getElementById('register-confirm-password').value;
+            const telegram_id = document.getElementById('reg-telegram').value;
+            if (password !== confirmPassword) {
+                showNotification('Las contraseñas no coinciden.');
+                return;
+	}
+	if (!username || !name || !telegram_id || !password) {
+        showNotification('Por favor, completa todos los campos.');
+        return;
+            }
+            socket.emit('register', { username, name, telegram_id, password });
+        });
+
+       document.getElementById('verify-form').addEventListener('submit', function(e) {
+    e.preventDefault();
+console.log('Evento submit disparado'); // Añade esto
+    const code = document.getElementById('verify-code').value;
+    if (!mySid) {
+        showNotification('Por favor, espera a conectarte.');
+        return;
+    }
+    console.log('Enviando verificación: SID=', mySid, 'Code=', code); // Para depuración
+    socket.emit('verify_account', { sid: mySid, code: code });
+});
+
+        socket.on('login_result', function(data) {
+            if (data.success) {
+                localStorage.setItem('username', data.username);
+                localStorage.setItem('password', document.getElementById('login-password') ? document.getElementById('login-password').value : localStorage.getItem('password'));
+                document.getElementById('player-name').innerText = 'Nombre: ' + data.username;
+                document.getElementById('auth-screen').style.display = 'none';
+                document.getElementById('game-screen').style.display = 'block';
+            } else {
+                showNotification('Error: ' + data.message);
+            }
+        });
+
+	socket.on('register_result', (data) => {
+    	if (data.success) {
+                showNotification(data.message);
+                document.getElementById('register-form').style.display = 'none';
+                document.getElementById('verify-form').style.display = 'block';
+        } else {
+                showNotification('Error: ' + data.message);
+            }
+        });
+
+        socket.on('verify_result', function(data) {
+console.log('Resultado de verificación:', data); // Para depuración
+            if (data.success) {
+		showNotification('Cuenta verificada con éxito. ¡Bienvenido, ' + data.username + '!');
+                localStorage.setItem('username', data.username);
+                localStorage.setItem('password', document.getElementById('register-password').value);
+                document.getElementById('player-name').innerText = 'Nombre: ' + data.username;
+                document.getElementById('auth-screen').style.display = 'none';
+                document.getElementById('game-screen').style.display = 'block';
+            } else {
+                showNotification('Error: ' + data.message);
+            }
+        });
+
+        socket.on('logout_result', function(data) {
+            if (data.success) {
+                localStorage.removeItem('username');
+                localStorage.removeItem('password');
+                document.getElementById('game-screen').style.display = 'none';
+                document.getElementById('auth-screen').style.display = 'block';
+                showNotification('Sesión cerrada con éxito.');
+            }
+        });
+
+        // Actualizaciones del juego
+        socket.on('update_forti', function(data) {
+            if (data.sid === mySid) {
+                var fortiElement = document.getElementById('forti');
+                fortiElement.innerText = 'Forti: ' + data.forti;
+                fortiElement.classList.add('highlight');
+                setTimeout(() => fortiElement.classList.remove('highlight'), 500);
+            }
+        });
+
+        socket.on('update_pool', function(data) {
+            var poolElement = document.getElementById('pool');
+            poolElement.innerText = 'Pozo: $' + data.pool;
+            poolElement.classList.add('highlight');
+            setTimeout(() => poolElement.classList.remove('highlight'), 500);
+        });
+
+        socket.on('update_winners', function(data) {
+            var winnersList = document.getElementById('winners-list');
+            winnersList.innerHTML = '';
+            data.winners.forEach(function(winner) {
+                var item = document.createElement('div');
+                item.className = 'winner-item';
+                item.innerText = winner.name + ' - $' + winner.prize;
+                winnersList.appendChild(item);
+            });
+        });
+
+        socket.on('update_online_players', function(data) {
+            var onlinePlayersList = document.getElementById('online-players-list');
+            onlinePlayersList.innerHTML = '';
+            data.online_players.forEach(function(player) {
+                if (player.name) {
+                    var item = document.createElement('div');
+                    item.className = 'online-player-item';
+                    item.innerText = player.name;
+                    onlinePlayersList.appendChild(item);
+                }
+            });
+        });
+
+        socket.on('game_over', function(data) {
+            showNotification('¡Ganador: ' + data.winner_name + '! Premio: $' + data.prize);
+            clearInterval(timerInterval);
+            document.getElementById('timer').innerText = 'Tiempo: 240s';
+            document.getElementById('timer').classList.remove('blink');
+            var lastPlayerElement = document.getElementById('last-player');
+            lastPlayerElement.innerText = '¡El último en presionar el botón gana! Último: Nadie';
+            lastPlayerElement.classList.add('highlight');
+            setTimeout(() => lastPlayerElement.classList.remove('highlight'), 500);
+            let barra = document.getElementById("barra");
+            barra.style.width = "100%";
+            barra.style.backgroundColor = "#228B22";
+        });
+
+        socket.on('error', function(data) {
+            showNotification(data.message);
+        });
+
+        socket.on('reset_timer', function(data) {
+            remainingTime = data.initial_time;
+            clearInterval(timerInterval);
+            updateTimer();
+            timerInterval = setInterval(updateTimer, 1000);
+        });
+
+        socket.on('button_pressed', function(data) {
+            var lastPlayerElement = document.getElementById('last-player');
+            lastPlayerElement.innerText = `¡El último en presionar el botón gana! Último: ${data.name}`;
+            lastPlayerElement.classList.add('highlight');
+            setTimeout(() => lastPlayerElement.classList.remove('highlight'), 500);
+        });
+
+        socket.on('withdraw_result', function(data) {
+            if (data.success) {
+                showNotification('Retiro exitoso: $' + data.amount + ' retirados.');
+                var poolElement = document.getElementById('pool');
+                poolElement.innerText = 'Pozo: $' + data.new_pool;
+                poolElement.classList.add('highlight');
+                setTimeout(() => poolElement.classList.remove('highlight'), 500);
+            } else {
+                showNotification('Error: ' + data.message);
+            }
+        });
+
+        socket.on('timer_blocked', function(data) {
+            var button = document.getElementById('button');
+            if (data.blocked) {
+                button.disabled = true;
+                clearInterval(timerInterval);
+                let blockInterval = setInterval(() => {
+                    let remaining = Math.ceil(data.until - Date.now() / 1000);
+                    button.innerText = `Bloqueado (${remaining}s)`;
+                    if (remaining <= 0) {
+                        button.disabled = false;
+                        button.innerText = 'Jugar x 100 Forti';
+                        clearInterval(blockInterval);
+                        updateTimer();
+                        timerInterval = setInterval(updateTimer, 1000);
+                    }
+                }, 1000);
+            } else {
+                button.disabled = false;
+                button.innerText = 'Jugar x 100 Forti';
+                updateTimer();
+                timerInterval = setInterval(updateTimer, 1000);
+            }
+        });
+
+        // Funciones del juego
+        function updateTimer() {
+            if (remainingTime > 0) {
+                var timerElement = document.getElementById('timer');
+                timerElement.innerText = 'Tiempo: ' + remainingTime + 's';
+                if (remainingTime <= 30) {
+                    timerElement.classList.add('blink');
+                    timerElement.style.color = '#00CED1';
+                } else {
+                    timerElement.classList.remove('blink');
+                    timerElement.style.color = '#FFD700';
+                }
+                let barra = document.getElementById("barra");
+                let progreso = remainingTime / 240;
+                barra.style.width = (progreso * 100) + "%";
+                barra.style.backgroundColor = progreso > 0.5 ? "#FF4500" : "#228B22";
+                remainingTime--;
+            } else {
+                clearInterval(timerInterval);
+                socket.emit('timer_expired');
+            }
+        }
+
+        function addChatMessage(data) {
+            var chatMessages = document.getElementById('chat-messages');
+            var messageDiv = document.createElement('div');
+            if (data.type === 'text') {
+                messageDiv.innerText = `[${data.timestamp}] ${data.username}: ${data.message}`;
+            } else if (data.type === 'voice') {
+                var audio = document.createElement('audio');
+                audio.controls = true;
+                audio.src = data.message;
+                messageDiv.innerText = `[${data.timestamp}] ${data.username}: `;
+                messageDiv.appendChild(audio);
+            }
+            chatMessages.appendChild(messageDiv);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        // Eventos de botones
+        document.getElementById('chat-send').addEventListener('click', function() {
+            var chatInput = document.getElementById('chat-input');
+            var message = chatInput.value.trim();
+            if (message) {
+                if (isRecording) {
+                    mediaRecorder.stop();
+                    isRecording = false;
+                    document.getElementById('record-voice').textContent = 'Grabar Voz';
+                    document.getElementById('record-voice').classList.remove('recording');
+                } else {
+                    socket.emit('send_message', { message: message, type: 'text' });
+                    chatInput.value = '';
+                }
+            } else if (isRecording) {
+                mediaRecorder.stop();
+                isRecording = false;
+                document.getElementById('record-voice').textContent = 'Grabar Voz';
+                document.getElementById('record-voice').classList.remove('recording');
+            }
+        });
+
+        document.getElementById('chat-input').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                document.getElementById('chat-send').click();
+            }
+        });
+
+        document.getElementById('record-voice').addEventListener('click', function() {
+            var button = this;
+            if (!isRecording) {
+                navigator.mediaDevices.getUserMedia({ audio: true })
+                    .then(stream => {
+                        mediaRecorder = new MediaRecorder(stream);
+                        audioChunks = [];
+                        mediaRecorder.start();
+                        button.textContent = 'Grabando...';
+                        button.classList.add('recording');
+                        isRecording = true;
+                        mediaRecorder.ondataavailable = event => audioChunks.push(event.data);
+                        mediaRecorder.onstop = () => {
+                            const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                            const reader = new FileReader();
+                            reader.readAsDataURL(audioBlob);
+                            reader.onloadend = () => {
+                                const base64Audio = reader.result;
+                                socket.emit('send_message', { message: base64Audio, type: 'voice' });
+                            };
+                            stream.getTracks().forEach(track => track.stop());
+                        };
+                    })
+                    .catch(err => showNotification('Error al acceder al micrófono: ' + err));
+            }
+        });
+
+        document.getElementById('logout-button').addEventListener('click', function() {
+            socket.emit('logout');
+        });
+
+        document.getElementById('button').addEventListener('click', function(e) {
+            e.preventDefault();
+            socket.emit('press_button');
+        });
+
+        // Recargas
+        document.getElementById('generate-payment-link').addEventListener('click', async (e) => {
+            e.preventDefault();
+            if (!mySid) {
+                showNotification('Por favor, espera a conectarte.');
+                return;
+            }
+            const amount = parseInt(document.getElementById('payment-amount').value);
+            if (!amount || amount < 1) {
+                showNotification('Ingresa un monto válido.');
+                return;
+            }
+            try {
+                const response = await fetch('http://192.168.0.6:5000/generate_payment_link', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ sid: mySid, amount: amount })
+                });
+                const data = await response.json();
+                if (data.error) {
+                    showNotification(data.error);
+                } else {
+                    window.open(data.payment_link, '_blank');
+                    showNotification('Abre el enlace para completar el pago.');
+                }
+            } catch (error) {
+                showNotification('Error al generar el enlace: ' + error);
+            }
+        });
+
+        // Retiros
+        document.getElementById('withdraw-button').addEventListener('click', async (e) => {
+            e.preventDefault();
+            if (!mySid) {
+                showNotification('Por favor, espera a conectarte.');
+                return;
+            }
+            const amountInput = prompt('Ingresa el monto a retirar (en Forti):');
+            const amount = parseInt(amountInput, 10);
+            if (isNaN(amount) || amount <= 0) {
+                showNotification('Ingresa un monto válido mayor a 0.');
+                return;
+            }
+            try {
+                const response = await fetch('http://192.168.0.6:5000/withdraw', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ sid: mySid, amount: amount })
+                });
+                const data = await response.json();
+                if (data.success) {
+                    showNotification(`Retiro de ${data.amount} Forti solicitado. Será procesado manualmente.`);
+                    loadTransactions();
+                } else {
+                    showNotification('Error: ' + data.message);
+                }
+            } catch (error) {
+                showNotification('Error al procesar el retiro: ' + error);
+            }
+        });
+
+        // Tienda y Pagos
+        document.getElementById('shop-button').addEventListener('click', () => {
+            document.getElementById('game-screen').style.display = 'none';
+            document.getElementById('shop-payments-screen').style.display = 'block';
+            loadTransactions();
+            loadWinners();
+        });
+
+        document.getElementById('back-button').addEventListener('click', () => {
+            document.getElementById('shop-payments-screen').style.display = 'none';
+            document.getElementById('game-screen').style.display = 'block';
+        });
+
+        document.getElementById('save-cvu').addEventListener('click', async () => {
+            const cvu = document.getElementById('cvu-input').value;
+            if (!mySid) {
+                showNotification('Por favor, espera a conectarte.');
+                return;
+            }
+            if (!cvu || cvu.length < 8) {
+                showNotification('Ingresa un CVU/CBU/Alias válido.');
+                return;
+            }
+            try {
+                const response = await fetch('http://192.168.0.6:5000/update_cvu', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ sid: mySid, cvu: cvu })
+                });
+                const data = await response.json();
+                if (data.success) {
+                    showNotification('CVU/CBU/Alias guardado correctamente.');
+                } else {
+                    showNotification('Error: ' + data.error);
+                }
+            } catch (error) {
+                showNotification('Error al guardar el CVU/CBU/Alias: ' + error);
+            }
+        });
+
+        document.querySelectorAll('.buy-power-button').forEach(button => {
+            button.addEventListener('click', function(e) {
+                e.preventDefault();
+                if (!mySid) {
+                    showNotification('Por favor, espera a conectarte.');
+                    return;
+                }
+                const power = this.getAttribute('data-power');
+                if (power === 'timer_block') {
+                    fetch('http://192.168.0.6:5000/buy_timer_block', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ sid: mySid })
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.error) {
+                            showNotification(data.error);
+                        } else if (data.init_point) {
+                            window.open(data.init_point, '_blank');
+                        }
+                    })
+                    .catch(error => showNotification('Error al comprar: ' + error));
+                }
+            });
+        });
+
+        // Funciones auxiliares
+        function loadTransactions() {
+            fetch(`http://192.168.0.6:5000/transactions?sid=${mySid}`)
+                .then(response => response.json())
+                .then(data => {
+                    const transactionsList = document.getElementById('transactions-list');
+                    transactionsList.innerHTML = '';
+                    data.transactions.forEach(tx => {
+                        const div = document.createElement('div');
+                        div.innerText = `[${tx.timestamp}] ${tx.type === 'deposit' ? 'Recarga' : 'Retiro'}: ${tx.amount} - ${tx.status}`;
+                        transactionsList.appendChild(div);
+                    });
+                })
+                .catch(error => console.error('Error al cargar transacciones:', error));
+        }
+
+        function loadWinners() {
+            fetch('http://192.168.0.6:5000/winners')
+                .then(response => response.json())
+                .then(data => {
+                    const winnersList = document.getElementById('winners-list');
+                    winnersList.innerHTML = '';
+                    data.winners.forEach(winner => {
+                        const div = document.createElement('div');
+                        div.innerText = `[${winner.timestamp}] ${winner.username}: ${winner.prize} Forti`;
+                        winnersList.appendChild(div);
+                    });
+                })
+                .catch(error => console.error('Error al cargar ganadores:', error));
+        }
+
+        function showNotification(message) {
+            var notification = document.createElement('div');
+            notification.className = 'notification';
+            notification.innerText = message;
+            document.body.appendChild(notification);
+            setTimeout(() => notification.remove(), 4000);
+        }
+    </script>
+</body>
+</html>
