@@ -65,12 +65,12 @@ def init_db():
         c.execute("PRAGMA table_info(players)")
         columns = [col[1] for col in c.fetchall()]
         expected_columns = ['sid', 'username', 'name', 'password', 'forti', 'last_press', 'pool', 'telegram_id', 'cvu', 'last_payment_id']
-        if not all(col in columns for col in expected_columns):
+        if 'phone' in columns or len(columns) != 10:
             print("Esquema de la tabla 'players' incorrecto. Recreando...")
             c.execute("DROP TABLE players")
             table_exists = False
     if not table_exists:
-       c.execute('''CREATE TABLE players 
+        c.execute('''CREATE TABLE players 
                      (sid TEXT PRIMARY KEY, username TEXT UNIQUE, name TEXT, password TEXT, 
                       forti INTEGER, last_press REAL, pool INTEGER DEFAULT 0, telegram_id TEXT, cvu TEXT, last_payment_id TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS transactions 
@@ -79,10 +79,14 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS winners 
                  (id INTEGER PRIMARY KEY AUTOINCREMENT, sid TEXT, username TEXT, prize INTEGER, 
                   timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS game_state 
+                 (key TEXT PRIMARY KEY, value INTEGER)''')
+    c.execute("INSERT OR IGNORE INTO game_state (key, value) VALUES ('pool', 1000)")
     conn.commit()
     conn.close()
-
+    
 init_db()
+
 def load_game_state():
     global pool
     conn = sqlite3.connect('forti_quest.db')
@@ -139,20 +143,11 @@ def generate_payment_link():
         return jsonify({'error': 'Jugador no encontrado'}), 400
     if not amount or amount < 1:
         return jsonify({'error': 'Monto inválido'}), 400
-
     preference_data = {
-        "items": [
-            {
-                "title": f"Recarga de {amount} Forti",
-                "quantity": 1,
-                "currency_id": "ARS",
-                "unit_price": float(amount)
-            }
-        ],
-        "external_reference": sid,  # Usamos el SID como referencia
+        "items": [{"title": f"Recarga de {amount} Forti", "quantity": 1, "currency_id": "ARS", "unit_price": float(amount)}],
+        "external_reference": sid,
         "notification_url": f"{NGROK_URL}/webhook"
     }
-
     response = sdk.preference().create(preference_data)
     if "response" in response and "init_point" in response["response"]:
         return jsonify({'payment_link': response["response"]["init_point"]})
@@ -216,41 +211,29 @@ def webhook():
             logging.info(f"Webhook URL recibido: id={payment_id}, topic={topic}")
             if not payment_id or topic != 'payment':
                 return jsonify({'status': 'ignored'}), 200
-        
-        payment = sdk.payment().get(payment_id)
-        if "response" not in payment:
-            logging.error(f"Error al consultar pago {payment_id}: {payment}")
-            return jsonify({'status': 'error', 'message': 'Error al consultar el pago'}), 500
-        
+
         payment = sdk.payment().get(payment_id)
         payment_response = payment["response"]
+        sid = payment_response.get("external_reference")
+        amount = payment_response.get("transaction_amount")
         payment_status = payment_response.get("status")
-        external_ref = payment_response.get("external_reference")
-        amount = payment_response["transaction_amount"]  # ✅ Campo correcto
-        
-        if not all([payment_status, external_ref, amount]):
-            logging.error(f"Datos incompletos en la respuesta del pago: status={payment_status}, external_ref={external_ref}, amount={amount}")
-            return jsonify({'status': 'error', 'message': 'Datos incompletos en la respuesta del pago'}), 500
-        
-        sid = external_ref.split('_')[0] if '_' in external_ref else external_ref
-        
+
         if payment_status == 'approved' and sid in players:
             with thread_lock:
                 players[sid]['forti'] += int(amount)
                 update_player_in_db(sid, players[sid]['username'], players[sid]['name'], 
-                                  players[sid]['password'], players[sid].get('telegram_id'), 
-                                  players[sid]['forti'], players[sid]['last_press'], 
-                                  players[sid]['pool'], players[sid].get('cvu'), players[sid].get('last_payment_id'))
+                                  players[sid]['password'], players[sid]['forti'], 
+                                  players[sid]['last_press'], players[sid]['pool'], 
+                                  players[sid].get('telegram_id'), players[sid].get('cvu'), payment_id)
                 save_transaction(sid, "deposit", amount, "completed")
             socketio.emit('update_forti', {'forti': players[sid]['forti'], 'sid': sid}, room=sid)
             logging.info(f"Pago aprobado: SID={sid}, Forti={players[sid]['forti']}")
             return jsonify({'status': 'success'}), 200
-        
+
         logging.info(f"Pago ignorado: status={payment_status}, SID={sid}")
         return jsonify({'status': 'ignored'}), 200
-    
     except Exception as e:
-        logging.error(f"Error en el webhook: {str(e)}")
+        logging.error(f"Error en webhook: {str(e)}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 # Endpoint de prueba para simular recarga
@@ -283,7 +266,6 @@ def get_transactions():
     sid = request.args.get('sid')
     if not sid or sid not in players:
         return jsonify({'error': 'Jugador no encontrado'}), 400
-    
     conn = sqlite3.connect('forti_quest.db')
     c = conn.cursor()
     c.execute("SELECT type, amount, status, timestamp FROM transactions WHERE sid = ? ORDER BY timestamp DESC", (sid,))
@@ -294,18 +276,17 @@ def get_transactions():
 @app.route('/update_cvu', methods=['POST'])
 def update_cvu():
     data = request.get_json()
-    sid = request.json.get('sid')
-    cvu = request.json.get('cvu')
+    sid = data.get('sid')
+    cvu = data.get('cvu')
     if not sid or sid not in players:
         return jsonify({'error': 'Jugador no encontrado'}), 400
-    if not cvu or len(cvu) < 5:  # CVU en Argentina tiene 22 dígitos
+    if not cvu or len(cvu) < 5:
         return jsonify({'error': 'CVU/CBU/Alias inválido'}), 400
-    
     with thread_lock:
         player = players[sid]
-        update_player_in_db(sid, player['username'], player['name'], 
-                          player['password'], player['forti'], player['last_press'], 
-                          player['pool'], cvu, player('last_payment_id'))
+        update_player_in_db(sid, player['username'], player['name'], player['password'], 
+                          player['forti'], player['last_press'], player['pool'], 
+                          player.get('telegram_id'), cvu, player.get('last_payment_id'))
         players[sid]['cvu'] = cvu
     return jsonify({'success': True, 'message': 'CVU/CBU/Alias actualizado'})
 
@@ -313,34 +294,26 @@ def update_cvu():
 @app.route('/withdraw', methods=['POST'])
 def withdraw():
     data = request.get_json()
-    sid = request.json.get('sid')
-    amount = request.json.get('amount')
-    logging.info(f"Intento de retiro: SID={sid}, Monto={amount}")
-    
+    sid = data.get('sid')
+    amount = data.get('amount')
     if not sid or sid not in players:
         return jsonify({"success": False, "message": "Usuario no encontrado"}), 400
     if not amount or amount <= 0:
         return jsonify({"success": False, "message": "Monto inválido"}), 400
-    
     with thread_lock:
         player = players[sid]
         if player['forti'] < amount:
             return jsonify({"success": False, "message": "Fondos insuficientes"}), 400
         if not player.get('cvu'):
-            return jsonify({"success": False, "message": "Debes configurar tu CVU/CBU/ALIAS primero"}), 400
-        
-        # Simulación de retiro
+            return jsonify({"success": False, "message": "Debes configurar tu CVU/CBU/Alias primero"}), 400
         player['forti'] -= amount
-        update_player_in_db(sid, player['username'], player['name'], 
-                          player['password'], player['forti'], player['last_press'], 
-                          player['pool'], player['cvu'], player.get('last_payment_id'))
+        update_player_in_db(sid, player['username'], player['name'], player['password'], 
+                          player['forti'], player['last_press'], player['pool'], 
+                          player.get('telegram_id'), player['cvu'], player.get('last_payment_id'))
         save_transaction(sid, "withdrawal", amount, "pending")
         socketio.emit('update_forti', {'forti': player['forti'], 'sid': sid}, room=sid)
-        
-        # Enviar email de notificación
         send_withdrawal_email(player['username'], amount, player['cvu'])
-        
-        return jsonify({"success": True, "message": "Retiro solicitado, será procesado de 1 a 2 dias", "amount": amount})
+    return jsonify({"success": True, "message": "Retiro solicitado, será procesado en 1-2 días"})
 
 @app.route('/winners', methods=['GET'])
 def get_winners():
@@ -351,11 +324,11 @@ def get_winners():
     conn.close()
     return jsonify({'winners': winners})
 
-def save_player(sid, username, name, password, forti, last_press, pool, cvu=None, last_payment_id=None):
+def save_player(sid, username, name, password, forti, last_press, pool, telegram_id=None, cvu=None, last_payment_id=None):
     conn = sqlite3.connect('forti_quest.db')
     c = conn.cursor()
-    c.execute("INSERT OR REPLACE INTO players (sid, username, name, phone, password, forti, last_press, pool, telegram_id, cvu, last_payment_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-              (sid, username, name, password, forti, last_press, pool, cvu, last_payment_id))
+    c.execute("INSERT OR REPLACE INTO players (sid, username, name, password, forti, last_press, pool, telegram_id, cvu, last_payment_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+              (sid, username, name, password, forti, last_press, pool, telegram_id, cvu, last_payment_id))
     conn.commit()
     conn.close()
 
@@ -382,7 +355,7 @@ def handle_connect():
     sid = request.sid
     with thread_lock:
         if sid not in players:
-            players[sid] = {'username': '', 'name': '', 'password': '', 'forti': 1000, 'last_press': 0, 'pool': 0}
+            players[sid] = {'username': '', 'name': '', 'password': '', 'forti': 1000, 'last_press': 0, 'pool': 0, 'telegram_id': None}
         online_players.add(sid)
     emit('update_pool', {'pool': pool})
     emit('update_forti', {'forti': players[sid]['forti'], 'sid': sid})
@@ -419,14 +392,15 @@ def handle_login(data):
     sid = request.sid
     conn = sqlite3.connect('forti_quest.db')
     c = conn.cursor()
-    c.execute("SELECT * FROM players WHERE username = ? AND password = ?", (username, password))
+    c.execute("SELECT sid, username, name, password, forti, last_press, pool, telegram_id, cvu, last_payment_id FROM players WHERE username = ? AND password = ?", (username, password))
     user = c.fetchone()
     conn.close()
     if user:
         with thread_lock:
             players[sid] = {
-                'username': user[1], 'name': user[2], 'phone': user[3], 'password': user[4],
-                'forti': user[5], 'last_press': user[6], 'pool': user[7]
+                'username': user[1], 'name': user[2], 'password': user[3],
+                'forti': user[4], 'last_press': user[5], 'pool': user[6],
+                'telegram_id': user[7], 'cvu': user[8], 'last_payment_id': user[9]
             }
             if sid not in online_players and players[sid]['name']:
                 online_players.add(sid)
@@ -443,7 +417,7 @@ def handle_register(data):
     username = data.get('username')
     name = data.get('name', '').strip()
     password = data.get('password')
-    telegram_id = data.get('telegram_id')  # Nuevo campo: ID de Telegram del jugador
+    telegram_id = data.get('telegram_id')
     sid = request.sid
     print(f"Intento de registro: SID={sid}, Username={username}, Name={name}, Telegram={telegram_id}")
     
@@ -454,56 +428,47 @@ def handle_register(data):
     if existing_user:
         conn.close()
         emit('register_result', {"success": False, "message": "Usuario ya existe"}, room=sid)
-        print(f"Registro fallido: SID={sid}, Username={username}, Motivo=Usuario ya existe")
         return
     if not telegram_id:
         emit('register_result', {"success": False, "message": "Debes proporcionar tu ID de Telegram"}, room=sid)
-        print(f"Registro fallido: SID={sid}, Motivo=Telegram ID no proporcionado")
         return
     c.execute("SELECT * FROM players WHERE telegram_id = ?", (telegram_id,))
     existing_telegram = c.fetchone()
     if existing_telegram:
         conn.close()
         emit('register_result', {"success": False, "message": "Este ID de Telegram ya está registrado"}, room=sid)
-        print(f"Registro fallido: SID={sid}, Telegram={telegram_id}, Motivo=Telegram ya registrado")
         return
     
     verification_code = str(random.randint(1000, 9999))
     verification_codes[sid] = verification_code
     
-    # Enviar código por Telegram al jugador
     message = f"Tu código de verificación para Forti Quest es: {verification_code}"
-    send_telegram_message(telegram_id, message)  # Enviar al Telegram del jugador
+    send_telegram_message(telegram_id, message)
     
     with thread_lock:
         players[sid] = {'username': username, 'name': name, 'password': password, 'forti': 0, 'last_press': 0, 'pool': 0, 'telegram_id': telegram_id}
     emit('register_result', {"success": True, "message": "Revisa tu Telegram para el código de verificación"}, room=sid)
-    print(f"Código de verificación {verification_code} enviado a Telegram ID: {telegram_id} para SID: {sid}")
     conn.close()
 
 @socketio.on('verify_account')
 def handle_verify_account(data):
     sid = data.get('sid')
     code = data.get('code')
-    print(f"Intento de verificación: SID={sid}, Code={code}")
-    print(f"Códigos almacenados: {verification_codes}")
     if sid in verification_codes and verification_codes[sid] == code:
         player = players.get(sid)
         if player:
             conn = sqlite3.connect('forti_quest.db')
             c = conn.cursor()
-            c.execute("INSERT INTO players (sid, username, name, telegram_id, password, forti, last_press, pool) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                      (sid, player['username'], player['name'], player['telegram_id'], player['password'], player['forti'], player['last_press'], player['pool']))
+            c.execute("INSERT INTO players (sid, username, name, password, forti, last_press, pool, telegram_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                      (sid, player['username'], player['name'], player['password'], player['forti'], player['last_press'], player['pool'], player['telegram_id']))
             conn.commit()
             conn.close()
             del verification_codes[sid]
             emit('verify_result', {"success": True, "message": "Cuenta verificada con éxito. ¡Bienvenido, " + player['username'] + "!", "username": player['username']}, room=sid)
-            print(f"Cuenta verificada: SID={sid}, Username={player['username']}")
         else:
             emit('verify_result', {"success": False, "message": "Error: No se encontró el jugador."}, room=sid)
     else:
         emit('verify_result', {"success": False, "message": "Código incorrecto o expirado."}, room=sid)
-        print(f"Verificación fallida: SID={sid}, Code={code}")
 
 @socketio.on('press_button')
 def handle_press_button():
@@ -522,7 +487,9 @@ def handle_press_button():
         last_press_time = time.time()
         game_active = True
         players[sid]['last_press'] = last_press_time
-        update_player_in_db(sid, players[sid]['username'], players[sid]['name'], players[sid]['password'], players[sid]['forti'], last_press_time, players[sid]['pool'])
+        update_player_in_db(sid, players[sid]['username'], players[sid]['name'], players[sid]['password'], 
+                          players[sid]['forti'], last_press_time, players[sid]['pool'], 
+                          players[sid].get('telegram_id'), players[sid].get('cvu'), None)
     emit('update_pool', {'pool': pool}, broadcast=True)
     emit('update_forti', {'forti': players[sid]['forti'], 'sid': sid}, broadcast=True)
     emit('button_pressed', {'sid': sid, 'name': players[sid]['name']}, broadcast=True)
@@ -540,7 +507,6 @@ def handle_timer_expired():
             players[last_press_sid]['forti'] += winner_forti
             players[last_press_sid]['pool'] = next_pool
             pool = next_pool
-            print(f"Comisión simulada al fundador: ${founder_forti} para FOUNDER_USER_ID={FOUNDER_USER_ID}")
             last_winners.append({'sid': last_press_sid, 'name': players[last_press_sid]['name'], 'prize': winner_forti})
             save_winner(last_press_sid, players[last_press_sid]['name'], winner_forti)
             socketio.emit('game_over', {'winner_sid': last_press_sid, 'winner_name': players[last_press_sid]['name'], 'prize': winner_forti, 'pool': pool})
@@ -556,21 +522,16 @@ def handle_send_message(data):
     sid = request.sid
     message = data.get('message', '').strip()
     message_type = data.get('type', 'text')
-    print(f"Procesando mensaje: SID={sid}, Type={message_type}, Message={message[:20]}...")
     if sid not in players or not players[sid].get('username'):
         emit('chat_error', {'message': 'Debes iniciar sesión para enviar mensajes'}, room=sid)
         return
     if not message:
         emit('chat_error', {'message': 'El mensaje no puede estar vacío'}, room=sid)
         return
-    chat_message = {
-        'username': players[sid]['username'],
-        'message': message,
-        'type': message_type
-    }
+    chat_message = {'username': players[sid]['username'], 'message': message, 'type': message_type}
     with thread_lock:
         chat_history.append(chat_message)
-    socketio.server.emit('new_message', chat_message, namespace='/', broadcast=True)
+    socketio.emit('new_message', chat_message, broadcast=True)
     print(f"Mensaje enviado: {chat_message}")
 
 def game_loop():
@@ -601,11 +562,12 @@ def load_players_from_db():
     global players
     conn = sqlite3.connect('forti_quest.db')
     c = conn.cursor()
-    c.execute("SELECT sid, username, name, password, forti, last_press, pool, telegram_id, cvu FROM players")
+    c.execute("SELECT sid, username, name, password, forti, last_press, pool, telegram_id, cvu, last_payment_id FROM players")
     for row in c.fetchall():
         players[row[0]] = {
             'username': row[1], 'name': row[2], 'password': row[3],
-            'forti': row[4], 'last_press': row[5], 'pool': row[6], 'telegram_id': row[7], 'cvu': row[8]
+            'forti': row[4], 'last_press': row[5], 'pool': row[6],
+            'telegram_id': row[7], 'cvu': row[8], 'last_payment_id': row[9]
         }
     conn.close()
 
@@ -617,7 +579,6 @@ def handle_game_event(data):
         save_winner(sid, players[sid]['username'], prize)
         
 if __name__ == '__main__':
-    import os
     load_players_from_db()
     load_game_state()
     port = int(os.environ.get("PORT", 5000))
