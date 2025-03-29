@@ -64,14 +64,14 @@ def init_db():
     if table_exists:
         c.execute("PRAGMA table_info(players)")
         columns = [col[1] for col in c.fetchall()]
-        expected_columns = ['sid', 'username', 'name', 'phone', 'password', 'forti', 'last_press', 'pool', 'telegram_id', 'cvu', 'last_payment_id']
+        expected_columns = ['sid', 'username', 'name', 'password', 'forti', 'last_press', 'pool', 'telegram_id', 'cvu', 'last_payment_id']
         if not all(col in columns for col in expected_columns):
             print("Esquema de la tabla 'players' incorrecto. Recreando...")
             c.execute("DROP TABLE players")
             table_exists = False
     if not table_exists:
        c.execute('''CREATE TABLE players 
-                     (sid TEXT PRIMARY KEY, username TEXT UNIQUE, name TEXT, phone TEXT, password TEXT, 
+                     (sid TEXT PRIMARY KEY, username TEXT UNIQUE, name TEXT, password TEXT, 
                       forti INTEGER, last_press REAL, pool INTEGER DEFAULT 0, telegram_id TEXT, cvu TEXT, last_payment_id TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS transactions 
                  (id INTEGER PRIMARY KEY AUTOINCREMENT, sid TEXT, type TEXT, amount REAL, 
@@ -207,22 +207,22 @@ def ipn():
 def webhook():
     try:
         data = request.get_json(silent=True)
-        if not data or 'data' not in data or 'id' not in data['data']:
-            logging.warning("Webhook recibido sin datos JSON válidos")
-            return jsonify({'status': 'ignored'}), 200
-        
-        logging.info(f"Webhook recibido: {data}")
-        
-        payment_id = data['data']['id']
-        if not payment_id:
-            logging.warning("Webhook sin 'id' de pago")
-            return jsonify({'status': 'ignored'}), 200
+        if data and 'data' in data and 'id' in data['data']:
+            payment_id = data['data']['id']
+            logging.info(f"Webhook JSON recibido: payment_id={payment_id}")
+        else:
+            payment_id = request.args.get('id') or request.args.get('data.id')
+            topic = request.args.get('topic') or request.args.get('type')
+            logging.info(f"Webhook URL recibido: id={payment_id}, topic={topic}")
+            if not payment_id or topic != 'payment':
+                return jsonify({'status': 'ignored'}), 200
         
         payment = sdk.payment().get(payment_id)
         if "response" not in payment:
             logging.error(f"Error al consultar pago {payment_id}: {payment}")
             return jsonify({'status': 'error', 'message': 'Error al consultar el pago'}), 500
         
+        payment = sdk.payment().get(payment_id)
         payment_response = payment["response"]
         payment_status = payment_response.get("status")
         external_ref = payment_response.get("external_reference")
@@ -238,9 +238,9 @@ def webhook():
             with thread_lock:
                 players[sid]['forti'] += int(amount)
                 update_player_in_db(sid, players[sid]['username'], players[sid]['name'], 
-                                  players[sid]['password'], 
+                                  players[sid]['password'], players[sid].get('telegram_id'), 
                                   players[sid]['forti'], players[sid]['last_press'], 
-                                  players[sid]['pool'], players[sid].get('cvu'))
+                                  players[sid]['pool'], players[sid].get('cvu'), players[sid].get('last_payment_id'))
                 save_transaction(sid, "deposit", amount, "completed")
             socketio.emit('update_forti', {'forti': players[sid]['forti'], 'sid': sid}, room=sid)
             logging.info(f"Pago aprobado: SID={sid}, Forti={players[sid]['forti']}")
@@ -305,7 +305,7 @@ def update_cvu():
         player = players[sid]
         update_player_in_db(sid, player['username'], player['name'], 
                           player['password'], player['forti'], player['last_press'], 
-                          player['pool'], cvu, player.get('last_payment_id'))
+                          player['pool'], cvu, player('last_payment_id'))
         players[sid]['cvu'] = cvu
     return jsonify({'success': True, 'message': 'CVU/CBU/Alias actualizado'})
 
@@ -359,8 +359,8 @@ def save_player(sid, username, name, password, forti, last_press, pool, cvu=None
     conn.commit()
     conn.close()
 
-def update_player_in_db(sid, username, name, password, forti, last_press, pool, cvu=None, last_payment_id=None):
-    save_player(sid, username, name, password, forti, last_press, pool, cvu, last_payment_id)
+def update_player_in_db(sid, username, name, password, forti, last_press, pool, telegram_id=None, cvu=None, last_payment_id=None):
+    save_player(sid, username, name, password, forti, last_press, pool, telegram_id, cvu, last_payment_id)
 
 def save_transaction(sid, type, amount, status):
     conn = sqlite3.connect('forti_quest.db')
@@ -492,8 +492,8 @@ def handle_verify_account(data):
         if player:
             conn = sqlite3.connect('forti_quest.db')
             c = conn.cursor()
-            c.execute("INSERT INTO players (username, name, telegram_id, password, forti, last_press, pool) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                      (player['username'], player['name'], player['telegram_id'], player['password'], player['forti'], player['last_press'], player['pool']))
+            c.execute("INSERT INTO players (sid, username, name, telegram_id, password, forti, last_press, pool) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                      (sid, player['username'], player['name'], player['telegram_id'], player['password'], player['forti'], player['last_press'], player['pool']))
             conn.commit()
             conn.close()
             del verification_codes[sid]
@@ -581,7 +581,7 @@ def game_loop():
 def save_player(sid, username, name, password, forti, last_press, pool, telegram_id=None, cvu=None, last_payment_id=None):
     conn = sqlite3.connect('forti_quest.db')
     c = conn.cursor()
-    c.execute("INSERT OR REPLACE INTO players (sid, username, name, phone, password, forti, last_press, pool, telegram_id, cvu, last_payment_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    c.execute("INSERT OR REPLACE INTO players (sid, username, name, password, forti, last_press, pool, telegram_id, cvu, last_payment_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
               (sid, username, name, password, forti, last_press, pool, telegram_id, cvu, last_payment_id))
     conn.commit()
     conn.close()
