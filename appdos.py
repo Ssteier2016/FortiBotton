@@ -1,3 +1,5 @@
+import eventlet
+eventlet.monkey_patch()
 from flask import Flask, render_template, request, jsonify
 from flask_socketio import SocketIO, emit
 from flask_cors import CORS  # Importa Flask-CORS
@@ -12,6 +14,7 @@ import random
 import base64
 import logging
 import requests
+import os
 
 app = Flask(__name__, template_folder='templates')
 CORS(app)  # Habilita CORS para todas las rutas
@@ -464,7 +467,7 @@ def handle_verify_account(data):
     sid = data.get('sid')
     code = data.get('code')
     print(f"Intento de verificación: SID={sid}, Code={code}")
-    
+    print(f"Códigos almacenados: {verification_codes}")
     if sid in verification_codes and verification_codes[sid] == code:
         player = players.get(sid)
         if player:
