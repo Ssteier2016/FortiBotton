@@ -32,7 +32,7 @@ conn.close()
 sdk = mercadopago.SDK("APP_USR-44493711284061-030923-7fd16a9d7e9c28d5cfec9eaa4be42df8-320701222")  # Access Token
 FOUNDER_USER_ID = "320701222"
 ACCESS_TOKEN = "APP_USR-44493711284061-030923-7fd16a9d7e9c28d5cfec9eaa4be42df8-320701222"  # Reemplaza si es diferente
-NGROK_URL = "https://7739-2800-810-497-8ddb-944b-fcf4-db27-febb.ngrok-free.app"  # Actualiza esto cada vez que reinicies ngrok
+NGROK_URL = "https://fortigame.onrender.com"  # Actualiza esto cada vez que reinicies ngrok
 
 # Datos de la cuenta Gmail
 EMAIL = "rod.arena7@gmail.com"
@@ -83,6 +83,21 @@ def init_db():
     conn.close()
 
 init_db()
+def load_game_state():
+    global pool
+    conn = sqlite3.connect('forti_quest.db')
+    c = conn.cursor()
+    c.execute("SELECT value FROM game_state WHERE key = 'pool'")
+    result = c.fetchone()
+    pool = result[0] if result else 1000
+    conn.close()
+    
+def save_game_state():
+    conn = sqlite3.connect('forti_quest.db')
+    c = conn.cursor()
+    c.execute("INSERT OR REPLACE INTO game_state (key, value) VALUES ('pool', ?)", (pool,))
+    conn.commit()
+    conn.close()
 
 # Función para enviar correos
 def send_withdrawal_email(username, amount, cvu):
@@ -135,7 +150,7 @@ def generate_payment_link():
             }
         ],
         "external_reference": sid,  # Usamos el SID como referencia
-        "notification_url": f"{NGROK_URL}/ipn"
+        "notification_url": f"{NGROK_URL}/webhook"
     }
 
     response = sdk.preference().create(preference_data)
@@ -181,7 +196,7 @@ def ipn():
             if sid in players:
                 players[sid]['forti'] += int(amount)
                 update_player_in_db(sid, players[sid]['username'], players[sid]['name'], 
-                                  players[sid]['phone'], players[sid]['password'], 
+                                  players[sid]['password'], 
                                   players[sid]['forti'], players[sid]['last_press'], 
                                   players[sid]['pool'], players[sid].get('cvu'), payment_id)
                 save_transaction(sid, "deposit", amount, "completed")
@@ -192,13 +207,13 @@ def ipn():
 def webhook():
     try:
         data = request.get_json(silent=True)
-        if not data:
+        if not data or 'data' not in data or 'id' not in data['data']:
             logging.warning("Webhook recibido sin datos JSON válidos")
             return jsonify({'status': 'ignored'}), 200
         
         logging.info(f"Webhook recibido: {data}")
         
-        payment_id = data.get("data", {}).get("id")
+        payment_id = data['data']['id']
         if not payment_id:
             logging.warning("Webhook sin 'id' de pago")
             return jsonify({'status': 'ignored'}), 200
@@ -222,9 +237,13 @@ def webhook():
         if payment_status == 'approved' and sid in players:
             with thread_lock:
                 players[sid]['forti'] += int(amount)
-                update_player_in_db(sid, players[sid]['username'], players[sid]['name'], players[sid]['phone'], players[sid]['password'], players[sid]['forti'], players[sid]['last_press'], players[sid]['pool'])
+                update_player_in_db(sid, players[sid]['username'], players[sid]['name'], 
+                                  players[sid]['password'], 
+                                  players[sid]['forti'], players[sid]['last_press'], 
+                                  players[sid]['pool'], players[sid].get('cvu'))
+                save_transaction(sid, "deposit", amount, "completed")
             socketio.emit('update_forti', {'forti': players[sid]['forti'], 'sid': sid}, room=sid)
-            logging.info(f"Pago aprobado: SID={sid}, Forti añadidos={amount}")
+            logging.info(f"Pago aprobado: SID={sid}, Forti={players[sid]['forti']}")
             return jsonify({'status': 'success'}), 200
         
         logging.info(f"Pago ignorado: status={payment_status}, SID={sid}")
@@ -243,7 +262,7 @@ def test_recharge():
         with thread_lock:
             players[sid]['forti'] += amount
             update_player_in_db(sid, players[sid]['username'], players[sid]['name'], 
-                              players[sid]['phone'], players[sid]['password'], 
+                              players[sid]['password'], 
                               players[sid]['forti'], players[sid]['last_press'], players[sid]['pool'])
         emit('update_forti', {'forti': players[sid]['forti'], 'sid': sid}, room=sid)
         print(f"Recarga de prueba: SID={sid}, Forti añadidos={amount}")
@@ -284,7 +303,7 @@ def update_cvu():
     
     with thread_lock:
         player = players[sid]
-        update_player_in_db(sid, player['username'], player['name'], player['phone'], 
+        update_player_in_db(sid, player['username'], player['name'], 
                           player['password'], player['forti'], player['last_press'], 
                           player['pool'], cvu, player.get('last_payment_id'))
         players[sid]['cvu'] = cvu
@@ -312,7 +331,7 @@ def withdraw():
         
         # Simulación de retiro
         player['forti'] -= amount
-        update_player_in_db(sid, player['username'], player['name'], player['phone'], 
+        update_player_in_db(sid, player['username'], player['name'], 
                           player['password'], player['forti'], player['last_press'], 
                           player['pool'], player['cvu'], player.get('last_payment_id'))
         save_transaction(sid, "withdrawal", amount, "pending")
@@ -332,16 +351,16 @@ def get_winners():
     conn.close()
     return jsonify({'winners': winners})
 
-def save_player(sid, username, name, phone, password, forti, last_press, pool, cvu=None, last_payment_id=None):
+def save_player(sid, username, name, password, forti, last_press, pool, cvu=None, last_payment_id=None):
     conn = sqlite3.connect('forti_quest.db')
     c = conn.cursor()
     c.execute("INSERT OR REPLACE INTO players (sid, username, name, phone, password, forti, last_press, pool, telegram_id, cvu, last_payment_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-              (sid, username, name, phone, password, forti, last_press, pool, cvu, last_payment_id))
+              (sid, username, name, password, forti, last_press, pool, cvu, last_payment_id))
     conn.commit()
     conn.close()
 
-def update_player_in_db(sid, username, name, phone, password, forti, last_press, pool, cvu=None, last_payment_id=None):
-    save_player(sid, username, name, phone, password, forti, last_press, pool, cvu, last_payment_id)
+def update_player_in_db(sid, username, name, password, forti, last_press, pool, cvu=None, last_payment_id=None):
+    save_player(sid, username, name, password, forti, last_press, pool, cvu, last_payment_id)
 
 def save_transaction(sid, type, amount, status):
     conn = sqlite3.connect('forti_quest.db')
@@ -363,7 +382,7 @@ def handle_connect():
     sid = request.sid
     with thread_lock:
         if sid not in players:
-            players[sid] = {'username': '', 'name': '', 'phone': '', 'password': '', 'forti': 0, 'last_press': 0, 'pool': 0}
+            players[sid] = {'username': '', 'name': '', 'password': '', 'forti': 1000, 'last_press': 0, 'pool': 0}
         online_players.add(sid)
     emit('update_pool', {'pool': pool})
     emit('update_forti', {'forti': players[sid]['forti'], 'sid': sid})
@@ -503,12 +522,13 @@ def handle_press_button():
         last_press_time = time.time()
         game_active = True
         players[sid]['last_press'] = last_press_time
-        update_player_in_db(sid, players[sid]['username'], players[sid]['name'], players[sid]['phone'], players[sid]['password'], players[sid]['forti'], last_press_time, players[sid]['pool'])
+        update_player_in_db(sid, players[sid]['username'], players[sid]['name'], players[sid]['password'], players[sid]['forti'], last_press_time, players[sid]['pool'])
     emit('update_pool', {'pool': pool}, broadcast=True)
     emit('update_forti', {'forti': players[sid]['forti'], 'sid': sid}, broadcast=True)
     emit('button_pressed', {'sid': sid, 'name': players[sid]['name']}, broadcast=True)
     emit('reset_timer', {'initial_time': 240}, broadcast=True)
-
+    save_game_state()
+    
 @socketio.on('timer_expired')
 def handle_timer_expired():
     global last_press_time, pool, game_active, last_press_sid, players, last_winners
@@ -558,16 +578,16 @@ def game_loop():
         socketio.sleep(1)
 
 # Funciones de base de datos
-def save_player(sid, username, name, phone, password, forti, last_press, pool, telegram_id=None, cvu=None, last_payment_id=None):
+def save_player(sid, username, name, password, forti, last_press, pool, telegram_id=None, cvu=None, last_payment_id=None):
     conn = sqlite3.connect('forti_quest.db')
     c = conn.cursor()
     c.execute("INSERT OR REPLACE INTO players (sid, username, name, phone, password, forti, last_press, pool, telegram_id, cvu, last_payment_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-              (sid, username, name, phone, password, forti, last_press, pool, telegram_id, cvu, last_payment_id))
+              (sid, username, name, password, forti, last_press, pool, telegram_id, cvu, last_payment_id))
     conn.commit()
     conn.close()
 
-def update_player_in_db(sid, username, name, phone, password, forti, last_press, pool, telegram_id=None, cvu=None, last_payment_id=None):
-    save_player(sid, username, name, phone, password, forti, last_press, pool, telegram_id, cvu, last_payment_id)
+def update_player_in_db(sid, username, name, password, forti, last_press, pool, telegram_id=None, cvu=None, last_payment_id=None):
+    save_player(sid, username, name, password, forti, last_press, pool, telegram_id, cvu, last_payment_id)
 
 def save_transaction(sid, type, amount, status):
     conn = sqlite3.connect('forti_quest.db')
@@ -575,6 +595,18 @@ def save_transaction(sid, type, amount, status):
     c.execute("INSERT INTO transactions (sid, type, amount, status) VALUES (?, ?, ?, ?)",
               (sid, type, amount, status))
     conn.commit()
+    conn.close()
+    
+def load_players_from_db():
+    global players
+    conn = sqlite3.connect('forti_quest.db')
+    c = conn.cursor()
+    c.execute("SELECT sid, username, name, password, forti, last_press, pool, telegram_id, cvu FROM players")
+    for row in c.fetchall():
+        players[row[0]] = {
+            'username': row[1], 'name': row[2], 'password': row[3],
+            'forti': row[4], 'last_press': row[5], 'pool': row[6], 'telegram_id': row[7], 'cvu': row[8]
+        }
     conn.close()
 
 @socketio.on('some_game_event')
@@ -586,6 +618,8 @@ def handle_game_event(data):
         
 if __name__ == '__main__':
     import os
+    load_players_from_db()
+    load_game_state()
     port = int(os.environ.get("PORT", 5000))
     game_thread = Thread(target=game_loop, daemon=True)
     game_thread.start()
