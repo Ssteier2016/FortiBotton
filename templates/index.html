@@ -481,7 +481,7 @@
         }
 
         // Configuración inicial
-        var socket = io('http://192.168.0.6:5000');
+        var socket = io('http://fortigame.onrender.com');
         var mySid = null;
         var remainingTime = 240;
         var timerInterval;
@@ -861,7 +861,7 @@ console.log('Resultado de verificación:', data); // Para depuración
                 return;
             }
             try {
-                const response = await fetch('http://192.168.0.6:5000/generate_payment_link', {
+                const response = await fetch('http://fortigame.onrender.com/generate_payment_link', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ sid: mySid, amount: amount })
@@ -892,7 +892,7 @@ console.log('Resultado de verificación:', data); // Para depuración
                 return;
             }
             try {
-                const response = await fetch('http://192.168.0.6:5000/withdraw', {
+                const response = await fetch('http://fortigame.onrender.com/withdraw', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ sid: mySid, amount: amount })
@@ -933,7 +933,7 @@ console.log('Resultado de verificación:', data); // Para depuración
                 return;
             }
             try {
-                const response = await fetch('http://192.168.0.6:5000/update_cvu', {
+                const response = await fetch('https://fortigame.onrender.com/update_cvu', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ sid: mySid, cvu: cvu })
@@ -958,7 +958,7 @@ console.log('Resultado de verificación:', data); // Para depuración
                 }
                 const power = this.getAttribute('data-power');
                 if (power === 'timer_block') {
-                    fetch('http://192.168.0.6:5000/buy_timer_block', {
+                    fetch('http://fortigame.onrender.com/buy_timer_block', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ sid: mySid })
@@ -978,7 +978,7 @@ console.log('Resultado de verificación:', data); // Para depuración
 
         // Funciones auxiliares
         function loadTransactions() {
-            fetch(`http://192.168.0.6:5000/transactions?sid=${mySid}`)
+            fetch(`https://fortigame.onrender.com/transactions?sid=${mySid}`)
                 .then(response => response.json())
                 .then(data => {
                     const transactionsList = document.getElementById('transactions-list');
@@ -993,7 +993,7 @@ console.log('Resultado de verificación:', data); // Para depuración
         }
 
         function loadWinners() {
-            fetch('http://192.168.0.6:5000/winners')
+            fetch('https://fortigame.onrender.com/winners')
                 .then(response => response.json())
                 .then(data => {
                     const winnersList = document.getElementById('winners-list');
