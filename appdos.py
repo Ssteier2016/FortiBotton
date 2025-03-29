@@ -28,9 +28,6 @@ ACCESS_TOKEN = "APP_USR-44493711284061-030923-7fd16a9d7e9c28d5cfec9eaa4be42df8-3
 NGROK_URL = os.environ.get("NGROK_URL", "https://fortigame.onrender.com")  # Usa variable de entorno, por defecto Render
 
 # Configuración de Email (combinando ambos códigos)
-EMAIL_SENDER = "rodrigo.n.arena@hotmail.com"  # Email del código anterior
-EMAIL_PASSWORD = "tu_contraseña_app"  # Contraseña de app para EMAIL_SENDER
-EMAIL_RECEIVER = "rodrigo.n.arena@hotmail.com"  # Receptor del código anterior
 EMAIL = "rod.arena7@gmail.com"  # Email del código actual
 PASSWORD = "dcnxfgpkpbcupinc"  # Contraseña de app para EMAIL
 
@@ -121,29 +118,18 @@ def send_withdrawal_email(username, amount, cvu):
     body = f"El jugador {username} ha solicitado un retiro de {amount} Forti.\nCVU/CBU/Alias: {cvu}\nPor favor, procesa el retiro manualmente."
     msg = MIMEText(body, 'plain', 'utf-8')
     msg['Subject'] = subject
-    msg['From'] = EMAIL_SENDER
-    msg['To'] = EMAIL_RECEIVER
+    msg['From'] = EMAIL
+    msg['To'] = EMAIL
 
     try:
         with smtplib.SMTP('smtp.gmail.com', 587) as server:
             server.starttls()
-            server.login(EMAIL_SENDER, EMAIL_PASSWORD)
+            server.login(EMAIL, EMAIL)
             server.send_message(msg)
             logging.info(f"Email enviado para retiro de {username} por {amount} Forti a {cvu}")
     except Exception as e:
-        logging.error(f"Error al enviar email desde {EMAIL_SENDER}: {e}")
-    
-    # Intento con el segundo email si falla el primero
-    msg['From'] = EMAIL
-    msg['To'] = EMAIL
-    try:
-        with smtplib.SMTP('smtp.gmail.com', 587) as server:
-            server.starttls()
-            server.login(EMAIL, PASSWORD)
-            server.send_message(msg)
-            logging.info(f"Email enviado desde {EMAIL} para retiro de {username}")
-    except Exception as e:
         logging.error(f"Error al enviar email desde {EMAIL}: {e}")
+    
 
 # Enviar mensaje a Telegram
 def send_telegram_message(chat_id, message):
