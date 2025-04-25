@@ -104,12 +104,12 @@ def load_players_from_db():
     global players
     conn = sqlite3.connect('forti_quest.db')
     c = conn.cursor()
-    c.execute("SELECT sid, username, name, phone, password, forti, last_press, pool, telegram_id, cvu, last_payment_id FROM players")
+    c.execute("SELECT sid, username, name, phone, password, forti, last_press, pool, telegram_id, cvu, last_payment_id, email FROM players")
     for row in c.fetchall():
         players[row[0]] = {
             'username': row[1], 'name': row[2], 'phone': row[3], 'password': row[4],
             'forti': row[5], 'last_press': row[6], 'pool': row[7],
-            'telegram_id': row[8], 'cvu': row[9], 'last_payment_id': row[10]
+            'telegram_id': row[8], 'cvu': row[9], 'last_payment_id': row[10], 'email': row[11]
         }
     conn.close()
 
@@ -125,12 +125,12 @@ def send_withdrawal_email(username, amount, cvu):
     try:
         with smtplib.SMTP('smtp.gmail.com', 587) as server:
             server.starttls()
-            server.login(EMAIL, EMAIL)
+            server.login(EMAIL, PASSWORD)
             server.send_message(msg)
-            logging.info(f"Email enviado para retiro de {username} por {amount} Forti a {cvu}")
+            logging.info(f"Email enviado para retiro de {username} por {amount} Forti a {EMAIL}")
     except Exception as e:
         logging.error(f"Error al enviar email desde {EMAIL}: {e}")
-    
+        raise
 
 # Enviar mensaje a Telegram
 def send_telegram_message(chat_id, message):
@@ -208,7 +208,7 @@ def ipn():
                 socketio.emit('update_forti', {'forti': players[sid]['forti'], 'sid': sid}, room=sid)
     return '', 200
 
-@app.route('/webhook', methods=['POST'])
+@app.route('/webhook', methods=['POST', 'GET'])
 def webhook():
     try:
         data = request.get_json(silent=True)
