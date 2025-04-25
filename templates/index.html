@@ -651,31 +651,44 @@
         });
 
         document.getElementById("verify-form").addEventListener("submit", (e) => {
-            e.preventDefault();
-            console.log('Evento submit disparado');
-            const code = document.getElementById("verify-code").value;
-            if (!mySid) {
-                showNotification('Por favor, espera a conectarte.');
-                return;
-            }
-            console.log('Enviando verificación: SID=', mySid, 'Code=', code);
-            socket.emit('verify_account', { sid: mySid, code: code });
-            fetch("/v2", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ sid: mySid, code: code })
-            })
-            .then(response => response.json())
-            .then(data => {
-                console.log("Resultado de verificación:", data);
-                if (data.success) {
-                    showNotification("Verificación exitosa");
-                } else {
-                    showNotification("Código inválido");
-                }
-            })
-            .catch(err => console.error("Error en verificación:", err));
-        });
+    e.preventDefault();
+    console.log('Evento submit disparado');
+    const verifyCodeElement = document.getElementById("verify-code");
+    if (!verifyCodeElement) {
+        showNotification('Error: No se encontró el campo de código de verificación.');
+        console.error('Elemento verify-code no encontrado en el DOM');
+        return;
+    }
+    const code = verifyCodeElement.value.trim();
+    if (!code) {
+        showNotification('Por favor, ingresa un código de verificación.');
+        return;
+    }
+    if (!mySid) {
+        showNotification('Por favor, espera a conectarte.');
+        return;
+    }
+    console.log('Enviando verificación: SID=', mySid, 'Code=', code);
+    socket.emit('verify_account', { sid: mySid, code: code });
+    fetch("/v2", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sid: mySid, code: code })
+    })
+    .then(response => response.json())
+    .then(data => {
+        console.log("Resultado de verificación:", data);
+        if (data.success) {
+            showNotification("Verificación exitosa");
+        } else {
+            showNotification("Código inválido: " + (data.message || "Intenta de nuevo"));
+        }
+    })
+    .catch(err => {
+        console.error("Error en verificación:", err);
+        showNotification("Error al verificar el código. Intenta de nuevo.");
+    });
+});
 
         socket.on('login_result', function(data) {
             if (data.success) {
