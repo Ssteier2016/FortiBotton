@@ -2,7 +2,7 @@ import eventlet
 eventlet.monkey_patch()
 from flask import Flask, render_template, request, jsonify
 from flask_socketio import SocketIO, emit
-from flask_cors import CORS  # Importa Flask-CORS
+from flask_cors import CORS
 import time
 from threading import Lock, Thread
 from collections import deque
@@ -17,26 +17,27 @@ import requests
 import os
 
 app = Flask(__name__, template_folder='templates')
-CORS(app)  # Habilita CORS para todas las rutas
+CORS(app)
 socketio = SocketIO(app, async_mode='eventlet', cors_allowed_origins="*")
 thread_lock = Lock()
 
 # Configuración de Mercado Pago
-sdk = mercadopago.SDK("APP_USR-44493711284061-030923-7fd16a9d7e9c28d5cfec9eaa4be42df8-320701222")  # Access Token
+sdk = mercadopago.SDK("APP_USR-44493711284061-030923-7fd16a9d7e9c28d5cfec9eaa4be42df8-320701222")
 FOUNDER_USER_ID = "320701222"
-ACCESS_TOKEN = "APP_USR-44493711284061-030923-7fd16a9d7e9c28d5cfec9eaa4be42df8-320701222"  # Reemplaza si es diferente
-NGROK_URL = os.environ.get("NGROK_URL", "https://fortigame.onrender.com")  # Usa variable de entorno, por defecto Render
+ACCESS_TOKEN = "APP_USR-44493711284061-030923-7fd16a9d7e9c28d5cfec9eaa4be42df8-320701222"
+NGROK_URL = os.environ.get("NGROK_URL", "https://fortigame.onrender.com")
 
-# Configuración de Email (combinando ambos códigos)
-EMAIL = os.environ.get("SMTP_USER", "rod.arena7@gmail.com")  # Email del código actual
-PASSWORD = os.environ.get("SMTP_PASSWORD", "dcnxfgpkpbcupinc")  # Contraseña de app para EMAIL
+# Configuración de Email
+EMAIL = os.environ.get("SMTP_USER", "rod.arena7@gmail.com")
+PASSWORD = os.environ.get("SMTP_PASSWORD", "dcnxfgpkpbcupinc")
 
-# Configuración de Telegram (del código actual)
-TELEGRAM_TOKEN = "7961738160:AAFs9T1_55PW1JsvRwiRHo4oUy1vN_NbgSg"  # Token de Telegram
-TELEGRAM_ADMIN_CHAT_ID = "1624130940"  # Chat ID del admin
+# Configuración de Telegram
+TELEGRAM_TOKEN = "7961738160:AAFs9T1_55PW1JsvRwiRHo4oUy1vN_NbgSg"
+TELEGRAM_ADMIN_CHAT_ID = "1624130940"
 
 # Configuración de logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 # Estado del juego
 players = {}
@@ -49,8 +50,11 @@ last_winners = deque(maxlen=10)
 verification_codes = {}
 chat_history = deque(maxlen=50)
 
-# Inicialización de la base de datos (combinando ambos esquemas)
-def init_db():
+# Funciones de base de datos envueltas en tpool
+def execute_db_operation(func, *args):
+    return eventlet.tpool.execute(func, *args)
+
+def init_db_blocking():
     conn = sqlite3.connect('forti_quest.db')
     c = conn.cursor()
     c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='players'")
@@ -60,7 +64,7 @@ def init_db():
         columns = [col[1] for col in c.fetchall()]
         expected_columns = ['sid', 'username', 'name', 'phone', 'password', 'forti', 'last_press', 'pool', 'telegram_id', 'cvu', 'last_payment_id', 'email']
         if not all(col in columns for col in expected_columns):
-            print("Esquema de la tabla 'players' incorrecto. Recreando...")
+            logger.info("Esquema de la tabla 'players' incorrecto. Recreando...")
             c.execute("DROP TABLE players")
             table_exists = False
     if not table_exists:
@@ -80,10 +84,10 @@ def init_db():
     conn.commit()
     conn.close()
 
-init_db()
+def init_db():
+    execute_db_operation(init_db_blocking)
 
-# Cargar estado del juego
-def load_game_state():
+def load_game_state_blocking():
     global pool
     conn = sqlite3.connect('forti_quest.db')
     c = conn.cursor()
@@ -92,15 +96,20 @@ def load_game_state():
     pool = result[0] if result else 1000
     conn.close()
 
-def save_game_state():
+def load_game_state():
+    execute_db_operation(load_game_state_blocking)
+
+def save_game_state_blocking():
     conn = sqlite3.connect('forti_quest.db')
     c = conn.cursor()
     c.execute("INSERT OR REPLACE INTO game_state (key, value) VALUES ('pool', ?)", (pool,))
     conn.commit()
     conn.close()
 
-# Cargar jugadores desde la base de datos
-def load_players_from_db():
+def save_game_state():
+    execute_db_operation(save_game_state_blocking)
+
+def load_players_from_db_blocking():
     global players
     conn = sqlite3.connect('forti_quest.db')
     c = conn.cursor()
@@ -113,35 +122,77 @@ def load_players_from_db():
         }
     conn.close()
 
-# Función para enviar correos (combinando ambos)
-def send_withdrawal_email(username, amount, cvu):
+def load_players_from_db():
+    execute_db_operation(load_players_from_db_blocking)
+
+def save_player_blocking(sid, username, name, phone, password, forti, last_press, pool, telegram_id=None, cvu=None, last_payment_id=None, email=None):
+    conn = sqlite3.connect('forti_quest.db')
+    c = conn.cursor()
+    c.execute("INSERT OR REPLACE INTO players (sid, username, name, phone, password, forti, last_press, pool, telegram_id, cvu, last_payment_id, email) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+              (sid, username, name, phone, password, forti, last_press, pool, telegram_id, cvu, last_payment_id, email))
+    conn.commit()
+    conn.close()
+
+def save_player(sid, username, name, phone, password, forti, last_press, pool, telegram_id=None, cvu=None, last_payment_id=None, email=None):
+    execute_db_operation(save_player_blocking, sid, username, name, phone, password, forti, last_press, pool, telegram_id, cvu, last_payment_id, email)
+
+def update_player_in_db(sid, username, name, phone, password, forti, last_press, pool, telegram_id=None, cvu=None, last_payment_id=None, email=None):
+    save_player(sid, username, name, phone, password, forti, last_press, pool, telegram_id, cvu, last_payment_id, email)
+
+def save_transaction_blocking(sid, type, amount, status):
+    conn = sqlite3.connect('forti_quest.db')
+    c = conn.cursor()
+    c.execute("INSERT INTO transactions (sid, type, amount, status) VALUES (?, ?, ?, ?)",
+              (sid, type, amount, status))
+    conn.commit()
+    conn.close()
+
+def save_transaction(sid, type, amount, status):
+    execute_db_operation(save_transaction_blocking, sid, type, amount, status)
+
+def save_winner_blocking(sid, username, prize):
+    conn = sqlite3.connect('forti_quest.db')
+    c = conn.cursor()
+    c.execute("INSERT INTO winners (sid, username, prize) VALUES (?, ?, ?)", (sid, username, prize))
+    conn.commit()
+    conn.close()
+
+def save_winner(sid, username, prize):
+    execute_db_operation(save_winner_blocking, sid, username, prize)
+
+# Funciones de notificación envueltas en tpool
+def send_withdrawal_email_blocking(username, name, amount, cvu):
     subject = f"Solicitud de Retiro - {username}"
-    body = f"El jugador {username} ha solicitado un retiro de {amount} Forti.\nCVU/CBU/Alias: {cvu}\nPor favor, procesa el retiro manualmente."
+    body = f"El jugador {username} ({name}) ha solicitado un retiro de {amount} Forti.\nCVU/CBU/Alias: {cvu}\nPor favor, procesa el retiro manualmente."
     msg = MIMEText(body, 'plain', 'utf-8')
     msg['Subject'] = subject
     msg['From'] = EMAIL
     msg['To'] = EMAIL
+    with smtplib.SMTP('smtp.gmail.com', 587) as server:
+        server.starttls()
+        server.login(EMAIL, PASSWORD)
+        server.send_message(msg)
+    logger.info(f"Email enviado para retiro de {username} por {amount} Forti a {EMAIL}")
 
+def send_withdrawal_email(username, name, amount, cvu):
     try:
-        with smtplib.SMTP('smtp.gmail.com', 587) as server:
-            server.starttls()
-            server.login(EMAIL, PASSWORD)
-            server.send_message(msg)
-            logging.info(f"Email enviado para retiro de {username} por {amount} Forti a {EMAIL}")
+        eventlet.tpool.execute(send_withdrawal_email_blocking, username, name, amount, cvu)
     except Exception as e:
-        logging.error(f"Error al enviar email desde {EMAIL}: {e}")
+        logger.error(f"Error al enviar email desde {EMAIL}: {e}")
         raise
 
-# Enviar mensaje a Telegram
-def send_telegram_message(chat_id, message):
+def send_telegram_message_blocking(chat_id, message):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {"chat_id": chat_id, "text": message}
+    response = requests.post(url, json=payload)
+    response.raise_for_status()
+    logger.info(f"Mensaje enviado a Telegram: {message} a chat_id {chat_id}")
+
+def send_telegram_message(chat_id, message):
     try:
-        response = requests.post(url, json=payload)
-        response.raise_for_status()
-        logging.info(f"Mensaje enviado a Telegram: {message} a chat_id {chat_id}")
+        eventlet.tpool.execute(send_telegram_message_blocking, chat_id, message)
     except Exception as e:
-        logging.error(f"Error al enviar mensaje a Telegram: {e}")
+        logger.error(f"Error al enviar mensaje a Telegram: {e}")
 
 @app.route('/')
 def index():
@@ -191,8 +242,9 @@ def ipn():
         return '', 200
     payment_id = data['data']['id']
     headers = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
-    response = requests.get(f"https://api.mercadopago.com/v1/payments/{payment_id}", headers=headers)
-    payment_info = response.json()
+    def fetch_payment_blocking():
+        return requests.get(f"https://api.mercadopago.com/v1/payments/{payment_id}", headers=headers).json()
+    payment_info = eventlet.tpool.execute(fetch_payment_blocking)
     if payment_info.get("status") == "approved":
         sid = payment_info.get("external_reference")
         amount = payment_info.get("transaction_amount")
@@ -215,19 +267,19 @@ def webhook():
             data = request.get_json(silent=True)
             if data and 'data' in data and 'id' in data['data']:
                 payment_id = data['data']['id']
-                logging.info(f"Webhook JSON recibido: payment_id={payment_id}")
+                logger.info(f"Webhook JSON recibido: payment_id={payment_id}")
             else:
                 return jsonify({'status': 'ignored'}), 200
         else:
             payment_id = request.args.get('id') or request.args.get('data.id')
             topic = request.args.get('topic') or request.args.get('type')
-            logging.info(f"Webhook URL recibido: id={payment_id}, topic={topic}")
+            logger.info(f"Webhook URL recibido: id={payment_id}, topic={topic}")
             if not payment_id or topic != 'payment':
                 return jsonify({'status': 'ignored'}), 200
 
         payment = sdk.payment().get(payment_id)
         if "response" not in payment:
-            logging.error(f"Error al consultar pago {payment_id}: {payment}")
+            logger.error(f"Error al consultar pago {payment_id}: {payment}")
             return jsonify({'status': 'error', 'message': 'Error al consultar el pago'}), 500
         
         payment_response = payment["response"]
@@ -236,7 +288,7 @@ def webhook():
         amount = payment_response.get("transaction_amount")
         
         if not all([payment_status, external_ref, amount]):
-            logging.error(f"Datos incompletos: status={payment_status}, external_ref={external_ref}, amount={amount}")
+            logger.error(f"Datos incompletos: status={payment_status}, external_ref={external_ref}, amount={amount}")
             return jsonify({'status': 'error', 'message': 'Datos incompletos'}), 500
         
         sid = external_ref.split('_')[0] if '_' in external_ref else external_ref
@@ -251,13 +303,13 @@ def webhook():
                                   players[sid].get('cvu'), payment_id, players[sid].get('email'))
                 save_transaction(sid, "deposit", amount, "completed")
             socketio.emit('update_forti', {'forti': players[sid]['forti'], 'sid': sid}, room=sid)
-            logging.info(f"Pago aprobado: SID={sid}, Forti añadidos={amount}")
+            logger.info(f"Pago aprobado: SID={sid}, Forti añadidos={amount}")
             return jsonify({'status': 'success'}), 200
         
-        logging.info(f"Pago ignorado: status={payment_status}, SID={sid}")
+        logger.info(f"Pago ignorado: status={payment_status}, SID={sid}")
         return jsonify({'status': 'ignored'}), 200
     except Exception as e:
-        logging.error(f"Error en el webhook: {str(e)}")
+        logger.error(f"Error en el webhook: {str(e)}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @app.route('/test_recharge', methods=['POST'])
@@ -274,14 +326,14 @@ def test_recharge():
                               players[sid].get('cvu'), players[sid].get('last_payment_id'), 
                               players[sid].get('email'))
         emit('update_forti', {'forti': players[sid]['forti'], 'sid': sid}, room=sid)
-        logging.info(f"Recarga de prueba: SID={sid}, Forti añadidos={amount}")
+        logger.info(f"Recarga de prueba: SID={sid}, Forti añadidos={amount}")
         return jsonify({'status': 'success'}), 200
     return jsonify({'error': 'Jugador no encontrado'}), 400
 
-@app.route("/notificacion_pago", methods=["POST"])
+@app.route('/notificacion_pago', methods=['POST'])
 def notificacion_pago():
     data = request.get_json()
-    print("Notificación recibida:", data)
+    logger.info(f"Notificación recibida: {data}")
     return jsonify({"status": "ok"}), 200
 
 @app.route('/transactions', methods=['GET'])
@@ -289,11 +341,14 @@ def get_transactions():
     sid = request.args.get('sid')
     if not sid or sid not in players:
         return jsonify({'error': 'Jugador no encontrado'}), 400
-    conn = sqlite3.connect('forti_quest.db')
-    c = conn.cursor()
-    c.execute("SELECT type, amount, status, timestamp FROM transactions WHERE sid = ? ORDER BY timestamp DESC", (sid,))
-    transactions = [{'type': row[0], 'amount': row[1], 'status': row[2], 'timestamp': row[3]} for row in c.fetchall()]
-    conn.close()
+    def fetch_transactions_blocking():
+        conn = sqlite3.connect('forti_quest.db')
+        c = conn.cursor()
+        c.execute("SELECT type, amount, status, timestamp FROM transactions WHERE sid = ? ORDER BY timestamp DESC", (sid,))
+        transactions = [{'type': row[0], 'amount': row[1], 'status': row[2], 'timestamp': row[3]} for row in c.fetchall()]
+        conn.close()
+        return transactions
+    transactions = execute_db_operation(fetch_transactions_blocking)
     return jsonify({'transactions': transactions})
 
 @app.route('/update_cvu', methods=['POST'])
@@ -323,7 +378,7 @@ def withdraw():
     data = request.get_json()
     sid = data.get('sid')
     amount = data.get('amount')
-    logging.info(f"Intento de retiro: SID={sid}, Monto={amount}")
+    logger.info(f"Intento de retiro: SID={sid}, Monto={amount}")
     if not sid or sid not in players:
         return jsonify({"success": False, "message": "Usuario no encontrado"}), 400
     try:
@@ -346,11 +401,10 @@ def withdraw():
         save_transaction(sid, "withdrawal", amount, "pending")
         try:
             send_withdrawal_email(player['username'], player['name'], amount, player['cvu'])
-            # Opcional: Notificación a Telegram admin
             telegram_msg = f"Retiro solicitado por {player['username']} ({player['name']}):\nMonto: ${amount}\nCVU: {player['cvu']}"
             send_telegram_message(TELEGRAM_ADMIN_CHAT_ID, telegram_msg)
         except Exception as e:
-            logging.error(f"Fallo al notificar retiro: {e}")
+            logger.error(f"Fallo al notificar retiro: {e}")
             save_transaction(sid, "withdrawal", amount, "failed")
             return jsonify({"success": False, "message": "Error al procesar notificaciones del retiro"}), 500
         socketio.emit('update_forti', {'forti': player['forti'], 'sid': sid}, room=sid)
@@ -361,6 +415,7 @@ def verify_code():
     data = request.get_json()
     sid = data.get('sid')
     code = data.get('code')
+    logger.debug(f"Procesando /v2: SID={sid}, Código={code}")
     if not sid or not code:
         return jsonify({"success": False, "message": "Falta SID o código"}), 400
     if sid in verification_codes and verification_codes[sid] == code:
@@ -377,43 +432,22 @@ def verify_code():
                                player.get('last_payment_id'), player.get('email'))
             online_players.add(sid)
             del verification_codes[sid]
+        logger.debug("/v2 completado")
         return jsonify({"success": True, "username": player['username']})
+    logger.debug("/v2 fallido: Código inválido")
     return jsonify({"success": False, "message": "Código inválido"}), 400
-    
+
 @app.route('/winners', methods=['GET'])
 def get_winners():
-    conn = sqlite3.connect('forti_quest.db')
-    c = conn.cursor()
-    c.execute("SELECT username, prize, timestamp FROM winners ORDER BY timestamp DESC LIMIT 5")
-    winners = [{'username': row[0], 'prize': row[1], 'timestamp': row[2]} for row in c.fetchall()]
-    conn.close()
+    def fetch_winners_blocking():
+        conn = sqlite3.connect('forti_quest.db')
+        c = conn.cursor()
+        c.execute("SELECT username, prize, timestamp FROM winners ORDER BY timestamp DESC LIMIT 5")
+        winners = [{'username': row[0], 'prize': row[1], 'timestamp': row[2]} for row in c.fetchall()]
+        conn.close()
+        return winners
+    winners = execute_db_operation(fetch_winners_blocking)
     return jsonify({'winners': winners})
-
-def save_player(sid, username, name, phone, password, forti, last_press, pool, telegram_id=None, cvu=None, last_payment_id=None, email=None):
-    conn = sqlite3.connect('forti_quest.db')
-    c = conn.cursor()
-    c.execute("INSERT OR REPLACE INTO players (sid, username, name, phone, password, forti, last_press, pool, telegram_id, cvu, last_payment_id, email) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-              (sid, username, name, phone, password, forti, last_press, pool, telegram_id, cvu, last_payment_id, email))
-    conn.commit()
-    conn.close()
-
-def update_player_in_db(sid, username, name, phone, password, forti, last_press, pool, telegram_id=None, cvu=None, last_payment_id=None, email=None):
-    save_player(sid, username, name, phone, password, forti, last_press, pool, telegram_id, cvu, last_payment_id, email)
-
-def save_transaction(sid, type, amount, status):
-    conn = sqlite3.connect('forti_quest.db')
-    c = conn.cursor()
-    c.execute("INSERT INTO transactions (sid, type, amount, status) VALUES (?, ?, ?, ?)",
-              (sid, type, amount, status))
-    conn.commit()
-    conn.close()
-
-def save_winner(sid, username, prize):
-    conn = sqlite3.connect('forti_quest.db')
-    c = conn.cursor()
-    c.execute("INSERT INTO winners (sid, username, prize) VALUES (?, ?, ?)", (sid, username, prize))
-    conn.commit()
-    conn.close()
 
 @socketio.on('connect')
 def handle_connect():
@@ -428,7 +462,7 @@ def handle_connect():
     emit('update_forti', {'forti': players[sid]['forti'], 'sid': sid})
     socketio.emit('update_online_players', {'online_players': [{'sid': sid, 'name': players[sid]['name']} for sid in online_players if players[sid]['name']]})
     emit('chat_history', {'messages': list(chat_history)}, room=sid)
-    logging.info(f"Jugador conectado: SID={sid}")
+    logger.info(f"Jugador conectado: SID={sid}")
 
 @socketio.on('disconnect')
 def handle_disconnect():
@@ -437,7 +471,7 @@ def handle_disconnect():
         if sid in online_players:
             online_players.remove(sid)
             socketio.emit('update_online_players', {'online_players': [{'sid': s, 'name': players[s]['name']} for s in online_players if players[s]['name']]})
-    print(f"Jugador desconectado: SID={sid}")
+    logger.info(f"Jugador desconectado: SID={sid}")
 
 @socketio.on('logout')
 def handle_logout():
@@ -450,18 +484,21 @@ def handle_logout():
             players[sid]['name'] = ''
     socketio.emit('update_online_players', {'online_players': [{'sid': s, 'name': players[s]['name']} for s in online_players if players[s]['name']]})
     emit('logout_result', {'success': True}, room=sid)
-    print(f"Jugador cerró sesión: SID={sid}")
+    logger.info(f"Jugador cerró sesión: SID={sid}")
 
 @socketio.on('login')
 def handle_login(data):
     username = data.get('username')
     password = data.get('password')
     sid = request.sid
-    conn = sqlite3.connect('forti_quest.db')
-    c = conn.cursor()
-    c.execute("SELECT sid, username, name, phone, password, forti, last_press, pool, telegram_id, cvu, last_payment_id, email FROM players WHERE username = ? AND password = ?", (username, password))
-    user = c.fetchone()
-    conn.close()
+    def login_blocking():
+        conn = sqlite3.connect('forti_quest.db')
+        c = conn.cursor()
+        c.execute("SELECT sid, username, name, phone, password, forti, last_press, pool, telegram_id, cvu, last_payment_id, email FROM players WHERE username = ? AND password = ?", (username, password))
+        user = c.fetchone()
+        conn.close()
+        return user
+    user = execute_db_operation(login_blocking)
     if user:
         with thread_lock:
             players[sid] = {
@@ -474,10 +511,10 @@ def handle_login(data):
         emit('login_result', {"success": True, "username": username}, room=sid)
         emit('update_forti', {'forti': players[sid]['forti'], 'sid': sid}, room=sid)
         socketio.emit('update_online_players', {'online_players': [{'sid': s, 'name': players[s]['name']} for s in online_players if players[s]['name']]})
-        logging.info(f"Inicio de sesión exitoso: SID={sid}, Username={username}")
+        logger.info(f"Inicio de sesión exitoso: SID={sid}, Username={username}")
     else:
         emit('login_result', {"success": False, "message": "Usuario o contraseña incorrectos"}, room=sid)
-        logging.info(f"Inicio de sesión fallido: SID={sid}, Username={username}")
+        logger.info(f"Inicio de sesión fallido: SID={sid}, Username={username}")
 
 @socketio.on('register')
 def handle_register(data):
@@ -488,31 +525,33 @@ def handle_register(data):
     telegram_id = data.get('telegram_id')
     email = data.get('email', '').strip()
     sid = request.sid
-    logging.info(f"Intento de registro: SID={sid}, Username={username}, Name={name}, Phone={phone}, Telegram={telegram_id}, Email={email}")
+    logger.info(f"Intento de registro: SID={sid}, Username={username}, Name={name}, Phone={phone}, Telegram={telegram_id}, Email={email}")
     
-    conn = sqlite3.connect('forti_quest.db')
-    c = conn.cursor()
-    c.execute("SELECT * FROM players WHERE username = ?", (username,))
-    existing_user = c.fetchone()
-    if existing_user:
+    def check_user_blocking():
+        conn = sqlite3.connect('forti_quest.db')
+        c = conn.cursor()
+        c.execute("SELECT * FROM players WHERE username = ?", (username,))
+        existing_user = c.fetchone()
+        c.execute("SELECT * FROM players WHERE telegram_id = ?", (telegram_id,))
+        existing_telegram = c.fetchone()
         conn.close()
+        return existing_user, existing_telegram
+    
+    existing_user, existing_telegram = execute_db_operation(check_user_blocking)
+    if existing_user:
         emit('register_result', {"success": False, "message": "Usuario ya existe"}, room=sid)
-        logging.info(f"Registro fallido: SID={sid}, Username={username}, Motivo=Usuario ya existe")
+        logger.info(f"Registro fallido: SID={sid}, Username={username}, Motivo=Usuario ya existe")
         return
     if not telegram_id:
         emit('register_result', {"success": False, "message": "Debes proporcionar tu ID de Telegram"}, room=sid)
         return
-    c.execute("SELECT * FROM players WHERE telegram_id = ?", (telegram_id,))
-    existing_telegram = c.fetchone()
     if existing_telegram:
-        conn.close()
         emit('register_result', {"success": False, "message": "Este ID de Telegram ya está registrado"}, room=sid)
         return
     
     verification_code = str(random.randint(1000, 9999))
     verification_codes[sid] = verification_code
     
-    # Enviar código por Telegram
     message = f"Tu código de verificación para Forti Quest es: {verification_code}"
     send_telegram_message(telegram_id, message)
     
@@ -522,33 +561,34 @@ def handle_register(data):
                         'cvu': None, 'last_payment_id': None, 'email': email}
     emit('register_result', {"success": True, "message": "Revisa tu Telegram para el código de verificación", 
                             "verificationCode": verification_code, "phone": phone}, room=sid)
-    conn.close()
-    logging.info(f"Código de verificación {verification_code} enviado a Telegram {telegram_id} para SID: {sid}")
+    logger.info(f"Código de verificación {verification_code} enviado a Telegram {telegram_id} para SID: {sid}")
 
 @socketio.on('verify_account')
 def handle_verify_account(data):
     sid = data.get('sid')
     code = data.get('code')
-    logging.info(f"Intento de verificación: SID={sid}, Código esperado={verification_codes.get(sid)}")
+    logger.info(f"Intento de verificación: SID={sid}, Código esperado={verification_codes.get(sid)}")
     if sid in verification_codes and verification_codes[sid] == code:
         with thread_lock:
             player = players[sid]
-            save_player(sid, player['username'], player['name'], player['phone'], player['password'], 
-                        player['forti'], player['last_press'], player['pool'], player.get('telegram_id'), 
-                        player.get('cvu'), player.get('last_payment_id'), player.get('email'))
+            save_player(sid, player['username'], player['name'], player['phone'], 
+                       player['password'], player['forti'], player['last_press'], 
+                       player['pool'], player.get('telegram_id'), player.get('cvu'), 
+                       player.get('last_payment_id'), player.get('email'))
             player['forti'] = 1000
-            update_player_in_db(sid, player['username'], player['name'], player['phone'], player['password'], 
-                              player['forti'], player['last_press'], player['pool'], player.get('telegram_id'), 
-                              player.get('cvu'), player.get('last_payment_id'), player.get('email'))
+            update_player_in_db(sid, player['username'], player['name'], player['phone'], 
+                              player['password'], player['forti'], player['last_press'], 
+                              player['pool'], player.get('telegram_id'), player.get('cvu'), 
+                              player.get('last_payment_id'), player.get('email'))
             online_players.add(sid)
             del verification_codes[sid]
         emit('verify_result', {"success": True, "username": player['username']}, room=sid)
         emit('update_forti', {'forti': player['forti'], 'sid': sid}, room=sid)
         socketio.emit('update_online_players', {'online_players': [{'sid': s, 'name': players[s]['name']} for s in online_players if players[s]['name']]})
-        logging.info(f"Verificación exitosa: SID={sid}, Username={player['username']}")
+        logger.info(f"Verificación exitosa: SID={sid}, Username={player['username']}")
     else:
         emit('verify_result', {"success": False, "message": "Código incorrecto o expirado"}, room=sid)
-        logging.info(f"Verificación fallida: SID={sid}")
+        logger.info(f"Verificación fallida: SID={sid}")
 
 @socketio.on('press_button')
 def handle_press_button():
@@ -567,10 +607,12 @@ def handle_press_button():
         last_press_time = time.time()
         game_active = True
         players[sid]['last_press'] = last_press_time
-        update_player_in_db(sid, players[sid]['username'], players[sid]['name'], players[sid]['phone'], 
-                          players[sid]['password'], players[sid]['forti'], last_press_time, 
-                          players[sid]['pool'], players[sid].get('telegram_id'), players[sid].get('cvu'), 
-                          players[sid].get('last_payment_id'), players[sid].get('email'))
+        update_player_in_db(sid, players[sid]['username'], players[sid]['name'], 
+                          players[sid]['phone'], players[sid]['password'], 
+                          players[sid]['forti'], last_press_time, 
+                          players[sid]['pool'], players[sid].get('telegram_id'), 
+                          players[sid].get('cvu'), players[sid].get('last_payment_id'), 
+                          players[sid].get('email'))
     emit('update_pool', {'pool': pool}, broadcast=True)
     emit('update_forti', {'forti': players[sid]['forti'], 'sid': sid}, broadcast=True)
     emit('button_pressed', {'sid': sid, 'name': players[sid]['name']}, broadcast=True)
@@ -588,7 +630,7 @@ def handle_timer_expired():
             players[last_press_sid]['forti'] += winner_forti
             players[last_press_sid]['pool'] = next_pool
             pool = next_pool
-            logging.info(f"Comisión simulada al fundador: ${founder_forti} para FOUNDER_USER_ID={FOUNDER_USER_ID}")
+            logger.info(f"Comisión simulada al fundador: ${founder_forti} para FOUNDER_USER_ID={FOUNDER_USER_ID}")
             last_winners.append({'sid': last_press_sid, 'name': players[last_press_sid]['name'], 'prize': winner_forti})
             save_winner(last_press_sid, players[last_press_sid]['username'], winner_forti)
             socketio.emit('game_over', {'winner_sid': last_press_sid, 'winner_name': players[last_press_sid]['name'], 
@@ -606,7 +648,7 @@ def handle_send_message(data):
     sid = request.sid
     message = data.get('message', '').strip()
     message_type = data.get('type', 'text')
-    logging.info(f"Procesando mensaje: SID={sid}, Type={message_type}, Message={message[:20]}...")
+    logger.info(f"Procesando mensaje: SID={sid}, Type={message_type}, Message={message[:20]}...")
     if sid not in players or not players[sid].get('username'):
         emit('chat_error', {'message': 'Debes iniciar sesión para enviar mensajes'}, room=sid)
         return
@@ -617,7 +659,7 @@ def handle_send_message(data):
     with thread_lock:
         chat_history.append(chat_message)
     socketio.emit('new_message', chat_message, broadcast=True)
-    logging.info(f"Mensaje enviado: {chat_message}")
+    logger.info(f"Mensaje enviado: {chat_message}")
 
 @socketio.on('some_game_event')
 def handle_game_event(data):
@@ -636,7 +678,7 @@ def game_loop():
                 with thread_lock:
                     if game_active and last_press_sid and last_press_sid in players:
                         socketio.emit('timer_expired', {})
-                        logging.info("Temporizador expiró, forzando timer_expired")
+                        logger.info("Temporizador expiró, forzando timer_expired")
                 last_press_time = 0
 
 if __name__ == '__main__':
