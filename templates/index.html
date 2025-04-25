@@ -461,6 +461,49 @@
     </div>
 
     <script>
+	let timeLeft = 240;
+let timerInterval;
+
+function startTimer() {
+    clearInterval(timerInterval);
+    const timerBar = document.getElementById("timer-bar");
+    const timerText = document.getElementById("timer-text");
+    if (!timerBar || !timerText) {
+        console.error("Elementos timer-bar o timer-text no encontrados");
+        return;
+    }
+    timeLeft = 240;
+    timerBar.style.width = "100%";
+    timerInterval = setInterval(() => {
+        if (timeLeft <= 0) {
+            clearInterval(timerInterval);
+            socket.emit('timer_expired', {});
+            return;
+        }
+        timeLeft--;
+        const percentage = (timeLeft / 240) * 100;
+        timerBar.style.width = `${percentage}%`;
+        const minutes = Math.floor(timeLeft / 60);
+        const seconds = timeLeft % 60;
+        timerText.textContent = `${minutes}:${seconds < 10 ? "0" : ""}${seconds}`;
+    }, 1000);
+}
+
+socket.on('reset_timer', (data) => {
+    timeLeft = data.initial_time;
+    if (timeLeft > 0) {
+        startTimer();
+    } else {
+        clearInterval(timerInterval);
+        document.getElementById("timer-bar").style.width = "0%";
+        document.getElementById("timer-text").textContent = "0:00";
+    }
+});
+
+socket.on('game_over', (data) => {
+    clearInterval(timerInterval);
+    alert(`Juego terminado! Ganador: ${data.winner_name}, Premio: ${data.prize} Forti`);
+});
         // Elementos dinámicos del fondo
         let moon = document.createElement('div');
         moon.className = 'moon';
