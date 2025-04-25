@@ -307,6 +307,15 @@
             z-index: 1000;
             animation: slideIn 0.5s forwards, slideOut 0.5s 3s forwards;
         }
+	#timer-container {
+    width: 200px;
+    margin: 10px auto;
+}
+#timer-bar {
+    height: 20px;
+    background-color: green;
+    transition: width 1s linear;
+}
         @keyframes slideIn {
             from { right: -300px; }
             to { right: 20px; }
@@ -395,6 +404,9 @@
             <div id="forti" class="game-info">Forti: 0</div>
             <div id="pool" class="game-info">Pozo: $1000</div>
             <div id="timer" class="game-info">Tiempo: 240s</div>
+	    <div id="timer-container">
+            <div id="timer-bar" style="width: 100%; height: 20px; background-color: green; transition: width 1s linear;"></div>
+            <div id="timer-text">4:00</div>
             <div id="last-player" class="game-info">¡El último en presionar el botón gana! Último: Nadie</div>
             <div class="barra-container">
                 <div id="barra" class="barra"></div>
@@ -589,7 +601,27 @@ console.log('Evento submit disparado'); // Añade esto
     console.log('Enviando verificación: SID=', mySid, 'Code=', code); // Para depuración
     socket.emit('verify_account', { sid: mySid, code: code });
 });
-
+	    
+document.getElementById("verify-form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const code = document.getElementById("verify-code").value;
+    const sid = socket.id;
+    fetch("/v2", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sid: sid, code: code })
+    })
+    .then(response => response.json())
+    .then(data => {
+        console.log("Resultado de verificación:", data);
+        if (data.success) {
+            alert("Verificación exitosa");
+        } else {
+            alert("Código inválido");
+        }
+    })
+    .catch(err => console.error("Error en verificación:", err));
+});
         socket.on('login_result', function(data) {
             if (data.success) {
                 localStorage.setItem('username', data.username);
