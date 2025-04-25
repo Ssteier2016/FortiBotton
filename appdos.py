@@ -29,7 +29,7 @@ NGROK_URL = os.environ.get("NGROK_URL", "https://fortigame.onrender.com")
 
 # Configuración de Email
 EMAIL = os.environ.get("SMTP_USER", "rod.arena7@gmail.com")
-PASSWORD = os.environ.get("SMTP_PASSWORD", "dcnxfgpkpbcupinc")
+PASSWORD = os.environ.get("SMTP_PASSWORD", "fwwxtandjsxtrwrz")
 
 # Configuración de Telegram
 TELEGRAM_TOKEN = "7961738160:AAFs9T1_55PW1JsvRwiRHo4oUy1vN_NbgSg"
