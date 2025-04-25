@@ -28,8 +28,8 @@ ACCESS_TOKEN = "APP_USR-44493711284061-030923-7fd16a9d7e9c28d5cfec9eaa4be42df8-3
 NGROK_URL = os.environ.get("NGROK_URL", "https://fortigame.onrender.com")  # Usa variable de entorno, por defecto Render
 
 # Configuración de Email (combinando ambos códigos)
-EMAIL = "rod.arena7@gmail.com"  # Email del código actual
-PASSWORD = "dcnxfgpkpbcupinc"  # Contraseña de app para EMAIL
+EMAIL = os.environ.get("SMTP_USER", "rod.arena7@gmail.com")  # Email del código actual
+PASSWORD = os.environ.get("SMTP_PASSWORD", "dcnxfgpkpbcupinc")  # Contraseña de app para EMAIL
 
 # Configuración de Telegram (del código actual)
 TELEGRAM_TOKEN = "7961738160:AAFs9T1_55PW1JsvRwiRHo4oUy1vN_NbgSg"  # Token de Telegram
@@ -58,7 +58,7 @@ def init_db():
     if table_exists:
         c.execute("PRAGMA table_info(players)")
         columns = [col[1] for col in c.fetchall()]
-        expected_columns = ['sid', 'username', 'name', 'phone', 'password', 'forti', 'last_press', 'pool', 'telegram_id', 'cvu', 'last_payment_id']
+        expected_columns = ['sid', 'username', 'name', 'phone', 'password', 'forti', 'last_press', 'pool', 'telegram_id', 'cvu', 'last_payment_id', 'email']
         if not all(col in columns for col in expected_columns):
             print("Esquema de la tabla 'players' incorrecto. Recreando...")
             c.execute("DROP TABLE players")
@@ -66,7 +66,8 @@ def init_db():
     if not table_exists:
         c.execute('''CREATE TABLE players 
                      (sid TEXT PRIMARY KEY, username TEXT UNIQUE, name TEXT, phone TEXT, password TEXT, 
-                      forti INTEGER, last_press REAL, pool INTEGER DEFAULT 0, telegram_id TEXT, cvu TEXT, last_payment_id TEXT)''')
+                      forti INTEGER, last_press REAL, pool INTEGER DEFAULT 0, telegram_id TEXT, cvu TEXT, 
+                      last_payment_id TEXT, email TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS transactions 
                  (id INTEGER PRIMARY KEY AUTOINCREMENT, sid TEXT, type TEXT, amount REAL, 
                   status TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)''')
